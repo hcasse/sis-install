@@ -36,10 +36,10 @@ import urlparse
 import xml.etree.ElementTree as ET
 
 # configuration
-APP				= "OTAWA"
-DB_URL			= "http://tracesgroup.net/otawa/packages/1.0"
+APP				= ""
+DB_URL			= "http://"
 DB_TOP			= ".."
-DB_CONF			= "share/Otawa/install.xml"
+DB_CONF			= "install.xml"
 VERSION_FILE	= "VERSION"
 
 # debugging
