@@ -1,0 +1,163 @@
+====== SIS-INSTALL ======
+
+sis-install.py is a multi-platform Simple Install System supporting:
+  * projects split in multiple packages,
+  * dependency management between packages,
+  * source or binary package distribution,
+  * local or global installation,
+  * local storage of the configuration,
+  * remote storage of the package index,
+  * XML-based storage of the package configuration (easy to fix),
+  * user management of packages installed locally.
+
+In addition, sis-install is very light (about ~1500 lines of code) and
+has minimal requirements on the host platform (a V2.0 Python interpreter).
+
+If you develop a framework or a software supporting lots of extensions,
+sis-install may be a solution to achieve (a) easy setup of your packages,
+(b) user level installation and (c) independency to host package system.
+
+
+===== Installation Model =====
+
+sis-install provides binary or source installation. Basically, sis-install
+uses three XML databases:
+  * the local database (lDB) contains information on installed packages,
+  * the source database (sDB) contains generic information and packages
+    and possibly, instructions to build a package from sources,
+  * the binary database (bDB) contains the list of packages for which
+    a binary distribution is provided.
+
+When sis-install starts, it loads lDB and sDB and, if available, the bDB.
+The lDB is found from a path stored in the sis-install.py script: if you
+use a path that is relative to the install script, you can obtain a relocatable
+installation (and if the installed packages support this). Then, the sDB
+is obtained using a URL (that is also configured in the script) augmented
+by a file named ''index.xml''. Finally, the URL is augmented by a directory
+name corresponding to the host OS (using the table below) and ''index.xml''
+to get the binary packages.
+
+^ OS ^ machine ^ directory ^
+| Linux | x86 32-bit | linux-x86 |
+| Linux | x86 64-bit | linux-x86_64 |
+| Windows | x86 32-bit | win |
+| Windows | x86 64-bit | win64 |
+| Mac OSX | x86 64-it | darwin-x86_64 |
+
+The three databases, lDB, sDB and bDB use the same XML format and contain
+description of the packages, each package enriching the generic database.
+The DTD of the database is provided with the distribution but you look
+to an excerpt below:
+
+<code xml>
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<sis-extend>
+
+	<package id="otawa-sparc">
+		<desc>OTAWA loader for Sparc instruction set</desc>
+		<copyright>Copyright (c) 2016, University of Toulouse</copyright>
+		<license ref="https://www.gnu.org/licenses/lgpl.html">LGPLv3</license>
+		<category>tool</category>
+		<web>http://www.otawa.fr</web>
+		<contact>mailto:otawa@irit.fr</contact>
+		
+		<req name="sparc"/>
+		<req name="otawa"/>
+		
+		<version number="1.0">
+			<file>otawa-sparc-161114-linux-x86_64.tar.bz2</file>
+			<size>192175</size>
+			<checksum>1b5bb23ce5e071722ff3248d1861e8b7</checksum>
+		</version>
+
+		<build>
+			<dep name="c++"/>
+			<download type="hg" address="https://anon:ok@wwwsecu.irit.fr/hg/TRACES/otawa-sparc/trunk"/>
+			<make type="cmake" flags="-DOTAWA_CONFIG=$(top_dir)/bin/otawa-config"/>
+		</build>
+	</package>
+
+	...
+
+</sis-extend>
+</code>
+
+Here, we have a package named ''otawa-sparc'' for which a description,
+copyright, license and contact are given. It requires two other packages:
+''sparc'' and ''otawa''. It may be provided either as a binary in version
+1.0 for which file name, size and checksum are provided. Or as a source
+build using C++ compiler, downloaded as a Mercurial archive and build
+using CMake. The file entry can contain an absolute path, or a path
+relative to the bDB directory.
+
+In fact, such a database is usually split between the description and
+build part in sDB and the version part in in bDB. The cDB contains the
+list of installed packages (with their version) and, possibly, the list
+of actions to perform to uninstall a package.
+
+
+===== Using sis-install.py =====
+
+sis-install is a standalone package: you have just to configure some
+constants at the head of the script and distribute it as is to let any
+use to play with your sofware.
+
+Basically, one has to prepare the directory that will contain the installation,
+let name it TOP_DIR:
+
+<code sh>
+./sys-install.py -R TOP_DIR
+</code>
+
+In addition, it will install itself in ''TOP_DIR/bin'' to let the user
+have access to it for subsequent extension of the installation. It will
+also prepare the lDB. From now, the user must invoke the sis-install.py
+of the installation.
+
+Now, the user can ask to see the list of available packages:
+<code sh>
+TOP_DIR/bin/sys-install.py -l
+</code>
+
+To get details on the package named PACK, the user can type:
+<code sh>
+TOP_DIR/bin/sys-install.py -i PACK
+</code>
+
+Now, a package PACK can be installed with:
+<code sh>
+TOP_DIR/bin/sys-install.py PACK
+</code>
+Depending on the available version in the database, a binary version
+is loaded if available, otherwise the source version will be installed.
+If PACK requires other packages, they will be installed as well.
+
+If a specific VERSION is required, an alternative syntax is:
+<code sh>
+TOP_DIR/bin/sys-install.py PACK:VERSION
+</code>
+
+To uninstall a package PACK, just type:
+<code sh>
+TOP_DIR/bin/sys-install.py -u PACK
+</code>
+
+Alternatively, if you do not want the user to be bothered by sis-install.py
+in or outside the installation, you can prepare the database and install
+a package with:
+<code sh>
+./sys-install.py -R TOP_DIR PACK
+</code>
+
+
+===== Building my databases =====
+
+
+===== Binary Distribution =====
+
+
+===== Source Distribution =====
+
+
+===== Configuring the script =====
+
