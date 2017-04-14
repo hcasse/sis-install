@@ -9,9 +9,6 @@
 <!ATTLIST package tool		(yes|no) "no">
 <!ATTLIST package version	#IMPLIED>
 
-<!-- deprecated element -->
-<!ELEMENT reqs				req+>
-
 <!ELEMENT req				EMPTY>
 <!ATTLIST req name			CDATA #REQUIRED>
 
@@ -42,3 +39,6 @@
 
 <!ELEMENT uninstall			(remove)*>
 <!ELEMENT remove path		CDATA #REQUIRED>
+
+<!-- deprecated element -->
+<!ELEMENT reqs				req+>
