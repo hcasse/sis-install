@@ -836,12 +836,9 @@ class CommandBuilder(Builder):
 			mon.log("executing %s\n" % self.build_cmd)
 			res = mon.execute(self.build_cmd, None, None, True)
 			os.chdir(path)
-			if res == 0:
-				return []
-			else:
-				return None
+			return res == 0
 		else:
-			return []
+			return True
 		
 
 BUILDERS = {
