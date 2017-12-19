@@ -27,6 +27,7 @@ import os
 import os.path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,7 @@ DB_URL			= "http://"
 DB_TOP			= ".."
 DB_CONF			= "install.xml"
 VERSION_FILE	= "VERSION"
+INSTALLED		= False
 
 # debugging
 DEBUG	= False
@@ -50,6 +52,7 @@ NULL_VERS = "0.0"
 SRCE_VERS = "source"
 SIS_EXTEND_TAG = "sis-extend"
 SIS_INSTALL_TAG = "sis-install"
+SIS_VERSION = "1.0"
 
 KNOWN_CONFIGS = {
 	("Linux",	"i686", 	32)	: "linux-x86",
@@ -103,12 +106,15 @@ def ensure_dir(path):
 		raise OSError("%s is not a directory or is not accessible!" % path)
 
 
-def download(addr, mon):
+def download(addr, mon, to = None):
 	"""Download the given file in the working directory.
 	On success, return the file path. Raise IOError else."""
 	try:
-		file = os.path.basename(addr)
-		path = os.path.join(mon.get_build_dir(), file)
+		if to == None:
+			file = os.path.basename(addr)
+			path = os.path.join(mon.get_build_dir(), file)
+		else:
+			path = to
 		in_stream = urllib2.urlopen(addr)
 		out_stream = open(path, "w")
 		shutil.copyfileobj(in_stream, out_stream)
@@ -138,6 +144,7 @@ class Monitor:
 		self.allocated_build_dir = False
 		self.allocated_log_file = False
 		self.var_re = re.compile("((^|[^$])\$\(([a-zA-Z0-9_]+)\))|(\$\$)")
+		self.update = False
 
 	def get(self, name, default = None):
 		try:
@@ -1090,6 +1097,11 @@ def load_db(url, mon, installed = False):
 		root = doc.getroot()
 		assert root.tag == SIS_EXTEND_TAG
 		
+		# manage script version
+		version = root.find("version")
+		if version <> None and Version(version) < Version(SIS_VERSION):
+			mon.update = True
+		
 		# parse the content
 		for p in root.findall("package"):
 			
@@ -1452,6 +1464,8 @@ def install_root(mon):
 	and the installation script itself."""
 	try:
 		ensure_dir(mon.top_dir)
+		
+		# create the database
 		db_path = os.path.join(mon.top_dir, DB_CONF)
 		ensure_dir(os.path.dirname(db_path))
 		out = open(db_path, "w")
@@ -1461,11 +1475,68 @@ def install_root(mon):
 </sis-extend>
 """)
 		out.close()
+		
+		# create the installation script
 		bin_dir = os.path.join(mon.top_dir, "bin")
 		ensure_dir(bin_dir)
-		shutil.copy2(__file__, bin_dir)
+		install_re = re.compile("^INSTALLED\s*=\s*False\s*$")
+		in_file = open(__file__, "r")
+		install_path = os.path.join(bin_dir, os.path.basename(__file__))
+		out_file = open(install_path, "w")
+		for l in in_file.xreadlines():
+			if install_re.match(l):
+				out_file.write("INSTALLED = True\n")
+			else:
+				out_file.write(l)
+		in_file.close()
+		out_file.close()
+		os.chmod(install_path, stat.S_IXUSR | os.stat(install_path).st_mode)
+		
+		# final message
+		mon.say("To install packages, you have to invoke:\n"
+			+ "\t%s PACKAGES" % install_path)
+		
 	except OSError as e:
 		mon.fatal(str(e))
+
+
+def update_installer(mon):
+	"""Update the installer version."""
+	new_path = os.join(os.path.dirname(__file__), ".new.py")
+	old_path = os.join(os.path.dirname(__file__), ".old.py")
+	install_path = __file__
+
+	# download the new version as .new.py
+	mon.say("downloading the new version")
+	try:
+		new_path = download(DB_URL + os.path.basename(__file__), mon, new_path)
+		mon.succeed()
+	except IOError as e:
+		mon.fail("error during the update of the installer: falling back to the current version:\n" %  e)
+		return
+	
+	# renaming
+	mon.say("installing the installer")
+	try:
+		os.rename(install_path, old_path)
+	except OSError as e:
+		mon.fail("the installer cannot be changed. No update performed.\n%s" % e)
+		return
+	try:
+		os.renamed(new_path, install_path)
+	except OSError as e:
+		mon.fail("Nasty thing: cannot set the new installer. Trying to reset the old one.\n%s" % e) 
+		try:
+			os.renamed(old_path, install_path)
+		except OSError, e:
+			mon.error("cannot re-install old installer but it can be found at %s" % old_path)
+		return
+	try:
+		os.remove(old_path)
+	except OErrror as e:
+		os.fail("New installer ready. Cannot remove old installer in %s.\n%s" % (old_path, e))
+		return
+	mon.succeed()
 
 
 # parse arguments
@@ -1493,6 +1564,8 @@ parser.add_argument('--root', '-R',
 	help="perform installation from scratch in the given directory")
 parser.add_argument('--uninstall', '-u', action="store_true",
 	help="uninstall the selected packages")
+parser.add_argument('--update-installer', '-U', action="store_true",
+	help="if any new version is available, update the installer")
 parser.add_argument('packages', nargs='*', help="packages to install")
 args = parser.parse_args()
 
@@ -1513,6 +1586,9 @@ if args.root <> None:
 	MONITOR.top_dir = args.root
 	install_root(MONITOR)
 else:
+	if not INSTALLED:
+		MONITOR.fatal("the script has not been installed in a root directory. Run it first with -R option.\n" +
+			"\t%s -R ROOT_DIRECTORY" % __file__)
 	ROOTED = False
 	MONITOR.top_dir = args.top
 	if not MONITOR.top_dir:
@@ -1530,6 +1606,18 @@ conf = MONITOR.get_host_type()
 if conf <> None:
 	load_db(DB_URL + "/" + conf + "/index.xml", MONITOR)		
 resolve_reqs(MONITOR)
+
+# warning about thew new version
+if args.update_installer:
+	if not MONITOR.update:
+		MONITOR.error("no new installer version to update")
+		sys.exit(1)
+	else:
+		update_installer(MONITOR)
+		pass
+		sys.exit(0)
+elif MONITOR.update:
+	MONITOR.warn("a new version of installer is available! Install with option -U")
 
 # perform actions
 if args.list:
