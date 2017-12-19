@@ -806,7 +806,7 @@ class CMakeBuilder(Builder):
 		if res == 0:
 			mon.log("\nBuilding %s: make\n" % self.pack.name)
 			res = mon.execute("make", log = True)
-		os.chdir(path)
+		os.chdir(cur)
 		return res == 0		
 		
 	def install(self, mon):
@@ -816,7 +816,7 @@ class CMakeBuilder(Builder):
 		cmd = "make install"
 		mon.log("\nInstalling %s: %s\n" % (self.pack.name, cmd))
 		res = mon.result_of(cmd, log = True)
-		os.chdir(path)
+		os.chdir(cur)
 		if res == None:
 			return False
 		else:
