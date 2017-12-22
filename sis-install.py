@@ -69,7 +69,7 @@ DYNLIB_EXT = {
 	"linux-x86_64":		".so",
 	"win":				".dll",
 	"win64":			".dll",
-	"darwin-x86_64":	".dsym"
+	"darwin-x86_64":	".dylib"
 }
 
 def is_younger(v1, v2):
