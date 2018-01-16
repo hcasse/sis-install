@@ -41,6 +41,7 @@ APP				= ""
 DB_URL			= "http://"
 DB_TOP			= ".."
 DB_CONF			= "install.xml"
+DEFAULT			= ""
 VERSION_FILE	= "VERSION"
 INSTALLED		= False
 
@@ -505,7 +506,7 @@ class CommandDep(Dep):
 
 class LibraryDep(Dep):
 	"""A library dependency look up for a library and possibly an
-	associated header file. The XML element name is used as the libary
+	associated header file. The XML element name is used as the library
 	name. A "header" attribute may be passed and used as header to test.
 	A "lang" attribute equal to "c" or "c++" may also be passed.
 	Additionnaly, "cflags" and "ldflags" attributes provides commands
@@ -525,7 +526,7 @@ class LibraryDep(Dep):
 			self.ldflags = ldflags
 	
 	def message(self):
-		return "libary  %s" % self.name
+		return "library  %s" % self.name
 	
 	def test(self, mon):
 		cflags = ""
@@ -1459,10 +1460,14 @@ def get_versions(names, mon):
 	except KeyError as e:
 		MONITOR.fatal("unknown package: %s" % e)
 
-def install_root(mon):
+def install_root(mon, path, packs):
 	"""Install the root directory, that is, the install database
-	and the installation script itself."""
+	and the installation script itself in the given path and run 
+	the installation of given packages."""
 	try:
+
+		# set the root directory
+		mon.top_dir = path
 		ensure_dir(mon.top_dir)
 		
 		# create the database
@@ -1492,10 +1497,17 @@ def install_root(mon):
 		out_file.close()
 		os.chmod(install_path, stat.S_IXUSR | os.stat(install_path).st_mode)
 		
-		# final message
-		mon.say("To install packages, you have to invoke:\n"
-			+ "\t%s PACKAGES" % install_path)
-		
+		# finalize
+		if not packs:
+			if not DEFAULT:
+				mon.say("To install packages, you have to invoke:\n"
+					+ "\t%s PACKAGES" % install_path)
+			else:
+				packs = [DEFAULT]
+		os.system("%s %s" % (install_path, " ".join(packs)));
+		MONITOR.say("\nThereafter, you have to use script %s to install packages!" % install_path)
+		exit(0)
+	
 	except OSError as e:
 		mon.fatal(str(e))
 
@@ -1571,8 +1583,8 @@ args = parser.parse_args()
 
 if args.build_dir:
 	try:
-		ensure_dir(args.build_dir)
-		MONITOR.build_dir = args.build_dir
+		MONITOR.build_dir = os.path.join(os.getcwd(), args.build_dir)
+		ensure_dir(MONITOR.build_dir)
 	except OSError as e:
 		MONITOR.fatal("%s for the building directory!" % e)
 MONITOR.verbose = args.verbose
@@ -1582,17 +1594,21 @@ MONITOR.comment("build directory = %s" % MONITOR.build_dir)
 
 # find the top directory
 if args.root <> None:	
-	ROOTED = True
-	MONITOR.top_dir = args.root
-	install_root(MONITOR)
+	install_root(MONITOR, args.root, args.packages)
 else:
 	if not INSTALLED:
-		MONITOR.fatal("the script has not been installed in a root directory. Run it first with -R option.\n" +
-			"\t%s -R ROOT_DIRECTORY" % __file__)
-	ROOTED = False
-	MONITOR.top_dir = args.top
-	if not MONITOR.top_dir:
-		MONITOR.top_dir = os.path.join(os.path.dirname(__file__), DB_TOP)
+		install = False
+		if (DEFAULT or args.packages) and MONITOR.ask_yes_no("The packages will be installed in %s: " % os.getcwd()):
+			install = True
+		if not install:
+			MONITOR.fatal("the script has not been installed in a root directory. Run it first with -R option.\n" +
+				"\t%s -R ROOT_DIRECTORY" % __file__)
+		else:
+			install_root(MONITOR, os.getcwd(), args.packages)
+	else:
+		MONITOR.top_dir = args.top
+		if not MONITOR.top_dir:
+			MONITOR.top_dir = os.path.join(os.path.dirname(__file__), DB_TOP)
 MONITOR.top_dir = os.path.abspath(MONITOR.top_dir)
 MONITOR.comment("top directory = %s" % MONITOR.top_dir)
 MONITOR.set("top_dir", MONITOR.top_dir)
