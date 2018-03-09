@@ -947,9 +947,9 @@ class BinaryVersion(Version):
 class SourceVersion(Version):
 	"""Version to download from sources."""
 	
-	def __init__(self, download, build, deps):
+	def __init__(self, downloader, build, deps):
 		Version.__init__(self, SRCE_VERS)
-		self.download = download
+		self.downloader = downloader
 		self.build = build
 		self.deps = deps
 	
@@ -959,18 +959,22 @@ class SourceVersion(Version):
 		if self.version == SRCE_VERS and os.access(VERSION_FILE, os.R_OK):
 			self.version = open(VERSION_FILE).readline().strip()
 		return self.version
-	
-	def install(self, mon):
-		"""Install a package from source."""
 
-		# download
-		if self.download:
+	def download(self, mon):
+		"""Download the source of the package."""
+		if self.downloader:
 			mon.check("downloading %s" % self.pack.name)
-			if self.download.download(mon):
+			if self.downloader.download(mon):
 				mon.succeed()
 			else:
 				mon.fail()
 				mon.fatal("Download failed: see errors in build.log")
+				
+	def install(self, mon):
+		"""Install a package from source."""
+
+		# download
+		self.download(mon)
 
 		# build
 		if self.build:
@@ -1285,7 +1289,7 @@ def resolve_reqs(mon):
 def list_packs( mon):
 	"""List the packages."""
 	mnw = max([len(p.name) for p in DB.values()])
-s	for pack in DB.values():
+	for pack in DB.values():
 		if pack.initial:
 			continue
 		if pack.tool:
@@ -1341,13 +1345,11 @@ def info_pack(pack, mon):
 	if reqs:
 		mon.say("\trequirements: %s" % (", ".join(sorted([repr(r) for r in reqs]))))
 	exit(0)
-		
 
-def install_packs(vs, mon):
-	"""Install the given packages made of version list."""
+
+def close_packs(vs, mon):
+	"""Compute the closure of packages to install (and return it)."""
 	vmap = { v.pack: v for v in vs }
-	
-	# closure of packages to download
 	todo = set(vs)
 	to_install = { }
 	while todo:
@@ -1365,6 +1367,25 @@ def install_packs(vs, mon):
 					if rv not in to_install:
 						todo.add(rv)
 			to_install[v] = rvs
+	return to_install
+	
+
+def install_sources(vs, mon):
+	"""Only install sources."""
+	if not mon.build_dir:
+		mon.fatal("to use -S, you have to specify a directory with -B!")
+	to_install = close_packs(vs, mon)
+	for p in to_install:
+		s = p.pack.source()
+		if s == None:
+			mon.warn("no source available for %s" % s.name)
+		else:
+			s.download(mon)
+
+
+def install_packs(vs, mon):
+	"""Install the given packages made of version list."""
+	to_install = close_packs(vs, mon)
 
 	# check all deps first
 	for v in to_install:
@@ -1499,13 +1520,26 @@ def install_root(mon, path, packs):
 		os.chmod(install_path, stat.S_IXUSR | os.stat(install_path).st_mode)
 		
 		# finalize
+		roots = ["-R", "--root"]
+		args = sys.argv[1:]
+		p = -1
+		for r in roots:
+			try:
+				p = args.index(r)
+				del args[p]
+				del args[p]	
+			except ValueError:
+				pass
+		do_install = True
 		if not packs:
 			if not DEFAULT:
 				mon.say("To install packages, you have to invoke:\n"
 					+ "\t%s PACKAGES" % install_path)
+				do_install = False
 			else:
-				packs = [DEFAULT]
-		os.system("%s %s" % (install_path, " ".join(packs)));
+				args.append(DEFAULT)
+		if do_install:
+			os.system("%s %s" % (install_path, " ".join(args)));
 		MONITOR.say("\nThereafter, you have to use script %s to install packages!" % install_path)
 		exit(0)
 	
@@ -1579,6 +1613,8 @@ parser.add_argument('--uninstall', '-u', action="store_true",
 	help="uninstall the selected packages")
 parser.add_argument('--update-installer', '-U', action="store_true",
 	help="if any new version is available, update the installer")
+parser.add_argument('--source', '-S', action="store_true",
+	help="only donwload sources (no installation)")
 parser.add_argument('packages', nargs='*', help="packages to install")
 args = parser.parse_args()
 
@@ -1644,5 +1680,7 @@ elif args.info:
 		info_pack(pack, MONITOR)
 elif args.uninstall:
 	uninstall_packs(get_packs(args.packages, MONITOR), MONITOR)
+elif args.source:
+	install_sources(get_versions(args.packages, MONITOR), MONITOR)
 else:
 	install_packs(get_versions(args.packages, MONITOR), MONITOR)
