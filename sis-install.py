@@ -1284,12 +1284,13 @@ def resolve_reqs(mon):
 
 def list_packs( mon):
 	"""List the packages."""
-	for pack in DB.values():
+	mnw = max([len(p.name) for p in DB.values()])
+s	for pack in DB.values():
 		if pack.initial:
 			continue
 		if pack.tool:
 			continue
-		msg = pack.name
+		msg = pack.name + " " * (mnw - len(pack.name))
 		
 		if not pack.installed:
 			lv = pack.latest()
