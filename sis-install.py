@@ -231,7 +231,7 @@ class Monitor:
 				err = self.err
 		try:
 			return subprocess.check_output(cmd, stderr=err, shell=True)
-		except CalledProcessError as e:
+		except subprocess.CalledProcessError as e:
 			self.log(str(e))
 			return None
 
@@ -441,7 +441,7 @@ class Dep:
 		if self.succeeded:
 			mon.succeed()
 		else:
-			mon.fail(self.help())
+			mon.fail()
 	
 	def test(self, mon):
 		"""This function must be overload to customize the test.
@@ -1539,8 +1539,11 @@ def install_root(mon, path, packs):
 			else:
 				args.append(DEFAULT)
 		if do_install:
-			os.system("%s %s" % (install_path, " ".join(args)));
-		MONITOR.say("\nThereafter, you have to use script %s to install packages!" % install_path)
+			res = subprocess.call([install_path] + args);
+			if res == 0:
+				mon.say("\nThereafter, you have to use script %s to install packages!" % install_path)
+			else:
+				os.remove(install_path)
 		exit(0)
 	
 	except OSError as e:
