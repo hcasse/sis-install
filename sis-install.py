@@ -605,6 +605,7 @@ def add_deps(elt, deps):
 # predefined dependencies
 CMAKE_DEP	= CommandDep("cmake", 		None, "cmake")
 HG_DEP		= CommandDep("mercurial",	None, "hg")
+GIT_DEP		= CommandDep("git",			None, "git")
 C_DEP		= CommandDep("cc",			None, "cc,gcc")
 CPP_DEP		= CommandDep("c++",			None, "c++,g++")
 MAKE_DEP	= CommandDep("make",		None, "make")
@@ -698,6 +699,27 @@ class HgDownloader(Downloader):
 		res = mon.execute(cmd, mon.get_log_file(), mon.get_log_file())
 		return res == 0
 
+
+class GitDownloader(Downloader):
+	
+	def __init__(self, pack, elt):
+		Downloader.__init__(self, pack)
+		self.address = elt.get("address", None)
+		assert self.address <> None
+	
+	def add_deps(self, deps):
+		deps.append(GIT_DEP)		
+	
+	def download(self, mon):
+		target = os.path.join(mon.get_build_dir(), self.pack.name)
+		if os.path.exists(target):
+			shutil.rmtree(target)
+		cmd = "git clone %s %s" % (self.address, target)
+		mon.log("\nDowloading %s: %s" % (self.pack.name, cmd))
+		res = mon.execute(cmd, mon.get_log_file(), mon.get_log_file())
+		return res == 0
+
+
 class ArchiveDownloader(Downloader):
 	"""Downloader for an archive. Requires attribute address to get
 	the archive."""
@@ -725,6 +747,7 @@ class ArchiveDownloader(Downloader):
 		return True
 
 DOWNLOADERS = {
+	"git"		: GitDownloader,
 	"hg"		: HgDownloader,
 	"archive"	: ArchiveDownloader
 }
