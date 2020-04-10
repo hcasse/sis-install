@@ -705,6 +705,7 @@ class GitDownloader(Downloader):
 	def __init__(self, pack, elt):
 		Downloader.__init__(self, pack)
 		self.address = elt.get("address", None)
+		self.tag = elt.get("tag", None)
 		assert self.address <> None
 	
 	def add_deps(self, deps):
@@ -714,7 +715,10 @@ class GitDownloader(Downloader):
 		target = os.path.join(mon.get_build_dir(), self.pack.name)
 		if os.path.exists(target):
 			shutil.rmtree(target)
-		cmd = "git clone %s %s" % (self.address, target)
+		flags = ""
+		if self.tag:
+			flags = "%s --branch %s" % self.tag
+		cmd = "git clone %s %s %s" % (flags, self.address, target)
 		mon.log("\nDowloading %s: %s" % (self.pack.name, cmd))
 		res = mon.execute(cmd, mon.get_log_file(), mon.get_log_file())
 		return res == 0
