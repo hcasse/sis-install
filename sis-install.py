@@ -42,6 +42,7 @@ DB_URL			= "http://"
 DB_TOP			= ".."
 DB_CONF			= "install.xml"
 DEFAULT			= ""
+DEFAULT_PATH = "."
 VERSION_FILE	= "VERSION"
 INSTALLED		= False
 
@@ -72,6 +73,13 @@ DYNLIB_EXT = {
 	"win64":			".dll",
 	"darwin-x86_64":	".dylib"
 }
+
+NORMAL = "\033[0m"
+BOLD = "\033[1m"
+GREEN = "\033[32m"
+RED = "\033[31m"
+BLUE = "\033[34m"
+
 
 def is_younger(v1, v2):
 	"""Test if v1 is younger than v2."""
@@ -175,21 +183,28 @@ class Monitor:
 		"""Ask the question to the user and parse answer."""
 		self.out.write(msg + " [yes/NO]: ")
 		self.out.flush()
-		line = sys.stdin.readline().strip().lower()
-		return line == "yes"
+		try:
+			line = sys.stdin.readline().strip().lower()
+			return line == "yes"
+		except KeyboardInterrupt:
+			sys.stdout.write("\n")
+			return False
 
 	def say(self, msg):
 		self.out.write("%s\n" % msg)
 	
+	def write_color(self, color, head, text):
+		self.err.write(BOLD + color + head + ": " + NORMAL + text + "\n")
+	
 	def warn(self, msg):
-		self.err.write("WARNING: %s\n" % msg)
+		self.write_color(GREEN, "WARNING", msg)
 	
 	def error(self, msg):
-		self.err.write("ERROR: %s\n" % msg)
+		self.write_color(RED, "ERROR", msg)
 		self.errors = self.errors + 1
 
 	def fatal(self, msg):
-		self.err.write("ERROR: %s\n" % msg)
+		self.write_color(RED, "ERROR", msg)
 		self.errors = self.errors + 1
 		self.cleanup()
 		exit(1)
@@ -199,10 +214,10 @@ class Monitor:
 		self.out.flush()
 	
 	def succeed(self):
-		self.out.write("[OK]\n")
+		self.out.write(GREEN + "[OK]\n" + NORMAL)
 	
 	def fail(self):
-		self.out.write("[FAILED]\n")
+		self.out.write(RED + "[FAILED]\n" + NORMAL)
 
 	def comment(self, msg):
 		if self.verbose:
@@ -1509,6 +1524,20 @@ def get_versions(names, mon):
 	except KeyError as e:
 		MONITOR.fatal("unknown package: %s" % e)
 
+
+def write_file(path, content):
+	"""Write the content of a file."""
+	ensure_dir(os.path.dirname(path))
+	out = open(path, "w")
+	out.write(content)
+	out.close()
+
+
+def set_file_exec(path):
+	"""Make a file exceutable."""
+	os.chmod(path, stat.S_IXUSR | os.stat(path).st_mode)
+	
+
 def install_root(mon, path, packs):
 	"""Install the root directory, that is, the install database
 	and the installation script itself in the given path and run 
@@ -1522,20 +1551,20 @@ def install_root(mon, path, packs):
 		# create the database
 		db_path = os.path.join(mon.top_dir, DB_CONF)
 		ensure_dir(os.path.dirname(db_path))
-		out = open(db_path, "w")
-		out.write(
+		write_file(db_path,
 """<?xml version='1.0' encoding='UTF-8'?>
 <sis-extend>
 </sis-extend>
 """)
-		out.close()
 		
 		# create the installation script
+		script_path = __file__
+		mon.comment("installing otawa-install in bin")
 		bin_dir = os.path.join(mon.top_dir, "bin")
 		ensure_dir(bin_dir)
-		install_re = re.compile("^INSTALLED\s*=\s*False\s*$")
-		in_file = open(__file__, "r")
-		install_path = os.path.join(bin_dir, os.path.basename(__file__))
+		install_re = re.compile("^INSTALLED\s*=.*$")
+		in_file = open(script_path, "r")
+		install_path = os.path.join(bin_dir, os.path.basename(script_path))
 		out_file = open(install_path, "w")
 		for l in in_file.xreadlines():
 			if install_re.match(l):
@@ -1544,9 +1573,23 @@ def install_root(mon, path, packs):
 				out_file.write(l)
 		in_file.close()
 		out_file.close()
-		os.chmod(install_path, stat.S_IXUSR | os.stat(install_path).st_mode)
+		set_file_exec(install_path)
 		
+		# remove the old one
+		mon.comment("removing old otawa-install")
+		old_name = script_path + ".old"
+		os.rename(script_path, old_name)
+		write_file(script_path,
+"""#!/usr/bin/python
+import os
+import sys
+print("WARNING: please use %s instead!")
+os.system(" ".join(["%s"] + sys.argv[1:]))
+""" % (install_path, install_path))
+		set_file_exec(script_path)
+
 		# finalize
+		mon.comment("restarting otawa-install")
 		roots = ["-R", "--root"]
 		args = sys.argv[1:]
 		p = -1
@@ -1568,7 +1611,9 @@ def install_root(mon, path, packs):
 		if do_install:
 			res = subprocess.call([install_path] + args);
 			if res == 0:
-				mon.say("\nThereafter, you have to use script %s to install packages!" % install_path)
+				mon.say(("\n" + BOLD + GREEN +
+					"Thereafter, you have to use script %s to install " + 
+					"packages!" + NORMAL) % install_path)
 			else:
 				os.remove(install_path)
 		exit(0)
@@ -1663,15 +1708,17 @@ MONITOR.comment("build directory = %s" % MONITOR.build_dir)
 if args.root <> None:	
 	install_root(MONITOR, args.root, args.packages)
 else:
-	if not INSTALLED:
+	if not INSTALLED and not args.list:
 		install = False
-		if (DEFAULT or args.packages) and MONITOR.ask_yes_no("The packages will be installed in %s: " % os.getcwd()):
+		install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
+		if (DEFAULT or args.packages) and \
+		MONITOR.ask_yes_no("The packages will be installed in %s: " % install_dir):
 			install = True
 		if not install:
 			MONITOR.fatal("the script has not been installed in a root directory. Run it first with -R option.\n" +
 				"\t%s -R ROOT_DIRECTORY" % __file__)
 		else:
-			install_root(MONITOR, os.getcwd(), args.packages)
+			install_root(MONITOR, install_dir, args.packages)
 	else:
 		MONITOR.top_dir = args.top
 		if not MONITOR.top_dir:
