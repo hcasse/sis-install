@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 #
 # SIS - Simple Installer System Installer
 #
@@ -32,8 +32,9 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib2
-import urlparse
+import urllib
+import urllib.error
+import urllib.request
 import xml.etree.ElementTree as ET
 
 # configuration
@@ -95,7 +96,7 @@ def do_closure(f, s):
 	of successors."""
 	res = []
 	todo = list(s)
-	while todo <> []:
+	while todo != []:
 		v = todo.pop()
 		for w in f(v):
 			if w not in res:
@@ -124,13 +125,13 @@ def download(addr, mon, to = None):
 			path = os.path.join(mon.get_build_dir(), file)
 		else:
 			path = to
-		in_stream = urllib2.urlopen(addr)
+		in_stream = urllib.request.urlopen(addr)
 		out_stream = open(path, "w")
 		shutil.copyfileobj(in_stream, out_stream)
 		in_stream.close()
 		out_stream.close()
 		return path
-	except (urllib2.URLError, IOError, shutil.Error) as e:
+	except (urllib.error.URLError, IOError, shutil.Error) as e:
 		raise IOError(str(e))
 
 
@@ -169,7 +170,7 @@ class Monitor:
 		if self.host_type == None:
 			os = platform.system()
 			mach = platform.machine()
-			if sys.maxint > 2**32:
+			if sys.maxsize > 2**32:
 				size = 64 
 			else:
 				size = 32
@@ -245,7 +246,7 @@ class Monitor:
 			else:
 				err = self.err
 		try:
-			return subprocess.check_output(cmd, stderr=err, shell=True)
+			return subprocess.check_output(cmd, stderr=err, shell=True, text=True)
 		except subprocess.CalledProcessError as e:
 			self.log(str(e))
 			return None
@@ -289,7 +290,7 @@ class Monitor:
 	def get_log_file(self):
 		"""Get the file to perform logging inside."""
 		if self.log_file == None:
-			if self.log_path <> None:
+			if self.log_path != None:
 				self.open_log(self.log_path)
 			else:
 				self.open_log(os.path.join(os.getcwd(), "build.log"))
@@ -368,7 +369,7 @@ class Install(Action):
 	def __init__(self, path = None, to = None):
 		Action.__init__(self, "install")
 		self.path = path
-		self.to = to if to <> None else path
+		self.to = to if to != None else path
 	
 	def perform(self, mon):	
 		spath = self.path
@@ -385,7 +386,7 @@ class Install(Action):
 	def parse(self, elt, mon):
 		to = elt.get("to", None)
 		self.path = elt.get("dynlib", None)
-		if self.path <> None:
+		if self.path != None:
 			ext = DYNLIB_EXT[mon.get_host_type()]
 		else:
 			ext = ""
@@ -435,7 +436,7 @@ class Dep:
 	the repository like special tools, libraries, etc."""
 	
 	def __init__(self, name):
-		assert not DEPS.has_key(name)
+		assert name not in DEPS
 		self.name = name
 		DEPS[name] = self
 		self.tested = False
@@ -483,11 +484,11 @@ class CommandDep(Dep):
 	
 	def __init__(self, name, elt, commands = ""):
 		Dep.__init__(self, name)
-		if elt <>  None:
+		if elt != None:
 			self.commands = elt.get("commands", None)
 		else:
 			self.commands = commands
-		assert self.commands <> None
+		assert self.commands != None
 		self.commands = self.commands.split(",")
 		self.found = None
 	
@@ -529,7 +530,7 @@ class LibraryDep(Dep):
 	
 	def __init__(self, name, elt, header = "", lang = "c", cflags = None, ldflags = None):
 		Dep.__init__(self, name)
-		if elt <>  None:
+		if elt != None:
 			self.header = elt.get("header", None)
 			self.lang = elt.get("lang", "c")
 			self.cflags = elt.get("cflags", None)
@@ -602,7 +603,6 @@ def make_dep(elt):
 			type = elt.get("type", None)
 			return dep_makers[type](name, elt)
 		except KeyError:
-			print "DEBUG: no dep matching type %s" % type
 			assert False
 
 def add_deps(elt, deps):
@@ -643,7 +643,7 @@ def default_unpack(cmd, file, mon):
 			shell = True)
 	finally:
 		os.chdir(old_cwd)
-	if rcode <> 0:
+	if rcode != 0:
 		mon.fatal("cannot unpack %s" % file)
 
 class Unpacker:
@@ -700,7 +700,7 @@ class HgDownloader(Downloader):
 	def __init__(self, pack, elt):
 		Downloader.__init__(self, pack)
 		self.address = elt.get("address", None)
-		assert self.address <> None
+		assert self.address != None
 	
 	def add_deps(self, deps):
 		deps.append(HG_DEP)		
@@ -721,7 +721,7 @@ class GitDownloader(Downloader):
 		Downloader.__init__(self, pack)
 		self.address = elt.get("address", None)
 		self.tag = elt.get("tag", None)
-		assert self.address <> None
+		assert self.address != None
 	
 	def add_deps(self, deps):
 		deps.append(GIT_DEP)		
@@ -746,7 +746,7 @@ class ArchiveDownloader(Downloader):
 	def __init__(self, pack, elt):
 		Downloader.__init__(self, pack)
 		self.address = elt.get("address", None)
-		assert self.address <> None
+		assert self.address != None
 
 	def add_deps(self, deps):
 		adeps = unpack_deps(os.path.basename(self.address))
@@ -898,7 +898,7 @@ BUILDERS = {
 }
 def make_builder(pack, elt):
 	type = elt.get("type", None)
-	assert type <> None
+	assert type != None
 	try:
 		return BUILDERS[type](pack, elt)
 	except KeyError:
@@ -953,11 +953,11 @@ class BinaryVersion(Version):
 			# parse the installs script
 			doc = ET.parse(os.path.join(dpath, "install.xml"))
 			root = doc.getroot()
-			if root.tag <> SIS_INSTALL_TAG:
+			if root.tag != SIS_INSTALL_TAG:
 				mon.fatal("error in package: bad script")
 			actions = []
 			for elt in root:
-				if elt.tag <> None:
+				if elt.tag != None:
 					action = get_action(elt, mon)
 					if action == None:
 						raise IOError("bad action")
@@ -971,7 +971,7 @@ class BinaryVersion(Version):
 			for action in actions:
 				action.perform(mon)
 				raction = action.reverse()
-				if raction <> None:
+				if raction != None:
 					uninstall.append(raction)
 		
 			# record the installation
@@ -980,7 +980,7 @@ class BinaryVersion(Version):
 			self.pack.installed_version = self.version
 			save_site(mon.site_path, self.pack, mon, uninstall)
 		
-		except urllib2.URLError as e:
+		except urllib.error.URLError as e:
 			mon.fatal(e)
 		except IOError as e:
 			mon.fatal(e)
@@ -1031,7 +1031,7 @@ class SourceVersion(Version):
 		if not self.pack.tool:
 			mon.check("installing %s" % self.pack.name)
 			res = self.build.install(mon)
-			if res <> None:
+			if res != None:
 				mon.succeed()
 				self.pack.installed = True
 				self.pack.installed_version = self.get_version()
@@ -1066,10 +1066,21 @@ class Package:
 		self.installed = False
 		self.installed_version = None
 		self.initial = False
+		self.rank = None
 	
 	def add_version(self, version):
 		self.versions.append(version)
 		version.pack = self
+
+	def get_rank(self):
+		"""Get the installation rank of the packager (bigger means
+		latter installation)."""
+		if self.rank == None:
+			if self.reqs or self.uses:
+				self.rank = max([p.get_rank() for p in self.reqs + self.uses]) + 1
+			else:
+				self.rank = 0
+		return self.rank
 
 	def source(self):
 		"""Obtain the source version if any. If none, return None."""
@@ -1082,7 +1093,7 @@ class Package:
 		"""Return the latest version."""
 		l = None
 		for v in self.versions:
-			if v.version <> SRCE_VERS and (l == None or is_younger(v, l)):
+			if v.version != SRCE_VERS and (l == None or is_younger(v, l)):
 				l = v
 		if l == None:
 			return self.source()
@@ -1139,14 +1150,14 @@ def load_db(url, mon, installed = False):
 	try:
 		
 		# get the file
-		stream = urllib2.urlopen(url)
+		stream = urllib.request.urlopen(url)
 		doc = ET.parse(stream)
 		root = doc.getroot()
 		assert root.tag == SIS_EXTEND_TAG
 		
 		# manage script version
 		version = root.find("version")
-		if version <> None and Version(version) < Version(SIS_VERSION):
+		if version != None and Version(version) < Version(SIS_VERSION):
 			mon.update = True
 		
 		# parse the content
@@ -1170,7 +1181,7 @@ def load_db(url, mon, installed = False):
 			pack.desc = to_xml(p.find("desc"), pack.desc)
 			pack.copyright = to_str(p.find("copyright"), pack.copyright)
 			pack.license = p.find("license")
-			if pack.license <> None:
+			if pack.license != None:
 				pack.license_url = pack.license.get("ref", pack.license_url)
 				pack.license = to_str(pack.license, pack.license)
 			pack.category = to_str(p.find("category"), pack.category)
@@ -1182,9 +1193,9 @@ def load_db(url, mon, installed = False):
 
 			# get requirements
 			reqs = p.find("reqs")
-			if reqs <> None:
+			if reqs != None:
 				for req in reqs.findall("req"):
-					assert req.attrib.has_key("name")
+					assert "name" in req.attrib
 					pack.reqs.append(req.get("name"))
 			pack.reqs = pack.reqs + [e.get("name") for e in p.findall("req")]
 			
@@ -1194,9 +1205,9 @@ def load_db(url, mon, installed = False):
 			# get binary versions
 			for velt in p.findall("version"):
 				version = velt.get("number", None)
-				assert version <> None
+				assert version != None
 				file = to_str(velt.find("file"), None)
-				assert file <> None
+				assert file != None
 				try:
 					file = url[:url.rfind("/")] + "/" + file
 				except ValueError:
@@ -1207,35 +1218,35 @@ def load_db(url, mon, installed = False):
 
 			# get build information
 			belt = p.find("build")
-			if belt <> None:
+			if belt != None:
 				download = belt.find("download")
-				if download <> None:
+				if download != None:
 					download = make_downloader(pack, download)
 				make = belt.find("make")
 				build = None
-				if make <> None:
+				if make != None:
 					build = make_builder(pack, make)
 				deps = []
 				for dep in belt.findall("dep"):
 					add_deps(dep, deps)
-				if download <> None:
+				if download != None:
 					download.add_deps(deps)
-				if build <> None:
+				if build != None:
 					build.add_deps(deps)
 				pack.add_version(SourceVersion(download, build, deps))
 			
 			# get uninstall if required
 			if installed:
 				uelt = p.find("uninstall")
-				if uelt <> None:
+				if uelt != None:
 					for aelt in uelt:
 						action = get_action(aelt, mon)
-						assert action <> None
+						assert action != None
 						pack.uninstall.append(action)
 			
 	except (AssertionError, ET.ParseError):
 		mon.fatal("bad DB. Stopping.")
-	except urllib2.URLError as e:
+	except urllib.error.URLError as e:
 		mon.fatal(e)
 
 
@@ -1279,7 +1290,7 @@ def save_site(path, ipack, mon, uninstall = None, remove = False):
 
 			# update the uninstall information
 			uelt = pack.find("unistall")
-			if uelt <> None:
+			if uelt != None:
 				pack.remove(uelt)
 			if uninstall:
 				uelt = ET.SubElement(pack, "uninstall")
@@ -1296,14 +1307,14 @@ def save_site(path, ipack, mon, uninstall = None, remove = False):
 		try:
 			doc.write(path, encoding="UTF-8", xml_declaration = True)
 			os.remove(old_path)
-		except OSError, e:
+		except OSError as e:
 			os.remove(path)
 			os.rename(old_path, path)
 			mon.fatal("cannot write install DB: %s" % e)
 
 	except AssertionError:
 		mon.fatal("ERROR: bad DB. Stopping.")
-	except urllib2.URLError as e:
+	except urllib.error.URLError as e:
 		mon.fatal(e)
 
 
@@ -1351,7 +1362,7 @@ def list_packs( mon):
 					msg = "%s V%s" % (msg, pack.installed_version)
 			if pack.installed_version:
 				lv = pack.latest()
-				if lv and lv.version <> SRCE_VERS and is_younger(lv.version, pack.installed_version):
+				if lv and lv.version != SRCE_VERS and is_younger(lv.version, pack.installed_version):
 					msg = "%s (avail. %s)" % (msg, lv.version)
 
 		mon.say(msg)
@@ -1390,7 +1401,8 @@ def info_pack(pack, mon):
 
 
 def close_packs(vs, mon):
-	"""Compute the closure of packages to install (and return it)."""
+	"""Compute the closure of packages to install (and return it).
+	Return map (package, list of dependencies) map."""
 	vmap = { v.pack: v for v in vs }
 	todo = set(vs)
 	to_install = { }
@@ -1404,7 +1416,7 @@ def close_packs(vs, mon):
 				except KeyError:
 					rv = req.latest()
 					vmap[req] = rv
-				if rv <> None:
+				if rv != None:
 					rvs.add(rv)
 					if rv not in to_install:
 						todo.add(rv)
@@ -1430,12 +1442,15 @@ def install_packs(vs, mon):
 	to_install = close_packs(vs, mon)
 
 	# check all deps first
+	failed = 0
 	for v in to_install:
 		for dep in v.deps:
 			if not dep.tested:
 				dep.do_test(mon)
 				if not dep.succeeded:
-					mon.fatal("missing dependency %s. Stopping." % dep.name)
+					failed = failed + 1
+	if failed != 0:
+		mon.fatal("%d dependency(ies) failed: aborting." % failed)
 
 	# perform the build
 	done = []
@@ -1447,16 +1462,8 @@ def install_packs(vs, mon):
 		res = all([is_ready(rv) for rv in to_install[v]])
 		return res
 	
-	def may_use(v1, v2):
-		if v1.pack in v2.pack.get_closed_uses():
-			return -1
-		elif v2.pack in v1.pack.get_closed_uses():
-			return +1
-		else:
-			return 0
-	
 	while to_install:
-		v = sorted(filter(req_ready, to_install), may_use)[0]
+		v = sorted(filter(req_ready, to_install), key=lambda v: v.pack.get_rank())[0]
 		del to_install[v]
 		if mon.dry:
 			mon.say("installing %s" % v.pack.name)
@@ -1536,7 +1543,7 @@ def write_file(path, content):
 def set_file_exec(path):
 	"""Make a file exceutable."""
 	os.chmod(path, stat.S_IXUSR | os.stat(path).st_mode)
-	
+
 
 def install_root(mon, path, packs):
 	"""Install the root directory, that is, the install database
@@ -1566,7 +1573,7 @@ def install_root(mon, path, packs):
 		in_file = open(script_path, "r")
 		install_path = os.path.join(bin_dir, os.path.basename(script_path))
 		out_file = open(install_path, "w")
-		for l in in_file.xreadlines():
+		for l in in_file.readlines():
 			if install_re.match(l):
 				out_file.write("INSTALLED = True\n")
 			else:
@@ -1574,17 +1581,17 @@ def install_root(mon, path, packs):
 		in_file.close()
 		out_file.close()
 		set_file_exec(install_path)
-		
+
 		# remove the old one
 		mon.comment("removing old otawa-install")
 		old_name = script_path + ".old"
 		os.rename(script_path, old_name)
 		write_file(script_path,
-"""#!/usr/bin/python
+"""#!/usr/bin/python3
 import os
 import sys
 print("WARNING: please use %s instead!")
-os.system(" ".join(["%s"] + sys.argv[1:]))
+os.system(" ".join(["%s --default"] + sys.argv[1:]))
 """ % (install_path, install_path))
 		set_file_exec(script_path)
 
@@ -1600,22 +1607,12 @@ os.system(" ".join(["%s"] + sys.argv[1:]))
 				del args[p]	
 			except ValueError:
 				pass
-		do_install = True
-		if not packs:
-			if not DEFAULT:
-				mon.say("To install packages, you have to invoke:\n"
-					+ "\t%s PACKAGES" % install_path)
-				do_install = False
-			else:
-				args.append(DEFAULT)
-		if do_install:
-			res = subprocess.call([install_path] + args);
-			if res == 0:
-				mon.say(("\n" + BOLD + GREEN +
-					"Thereafter, you have to use script %s to install " + 
-					"packages!" + NORMAL) % install_path)
-			else:
-				os.remove(install_path)
+		args.append("--default")
+		res = subprocess.call([install_path] + args);
+		if res == 0:
+			mon.say(("\n" + BOLD + GREEN +
+				"Thereafter, you have to use script %s to install " + 
+				"packages!" + NORMAL) % install_path)
 		exit(0)
 	
 	except OSError as e:
@@ -1650,7 +1647,7 @@ def update_installer(mon):
 		mon.fail("Nasty thing: cannot set the new installer. Trying to reset the old one.\n%s" % e) 
 		try:
 			os.renamed(old_path, install_path)
-		except OSError, e:
+		except OSError as e:
 			mon.error("cannot re-install old installer but it can be found at %s" % old_path)
 		return
 	try:
@@ -1690,6 +1687,8 @@ parser.add_argument('--update-installer', '-U', action="store_true",
 	help="if any new version is available, update the installer")
 parser.add_argument('--source', '-S', action="store_true",
 	help="only donwload sources (no installation)")
+parser.add_argument('--default', action="store_true",
+	help="install the default packages")
 parser.add_argument('packages', nargs='*', help="packages to install")
 args = parser.parse_args()
 
@@ -1705,24 +1704,21 @@ MONITOR.force = args.force
 MONITOR.comment("build directory = %s" % MONITOR.build_dir)
 
 # find the top directory
-if args.root <> None:	
+if args.root != None:	
 	install_root(MONITOR, args.root, args.packages)
+elif not INSTALLED:
+	install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
+	if not MONITOR.ask_yes_no("The packages will be installed in %s: " % install_dir):
+		MONITOR.fatal("Run this script first with -R option to select a different directory.\n")
+	packs = args.packages
+	if not packs:
+		packs = DEFAULT
+	install_root(MONITOR, DEFAULT_PATH, packs)
 else:
-	if not INSTALLED and not args.list:
-		install = False
-		install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
-		if (DEFAULT or args.packages) and \
-		MONITOR.ask_yes_no("The packages will be installed in %s: " % install_dir):
-			install = True
-		if not install:
-			MONITOR.fatal("the script has not been installed in a root directory. Run it first with -R option.\n" +
-				"\t%s -R ROOT_DIRECTORY" % __file__)
-		else:
-			install_root(MONITOR, install_dir, args.packages)
-	else:
-		MONITOR.top_dir = args.top
-		if not MONITOR.top_dir:
-			MONITOR.top_dir = os.path.join(os.path.dirname(__file__), DB_TOP)
+	MONITOR.top_dir = args.top
+	if not MONITOR.top_dir:
+		MONITOR.top_dir = os.path.join(os.path.dirname(__file__), DB_TOP)
+
 MONITOR.top_dir = os.path.abspath(MONITOR.top_dir)
 MONITOR.comment("top directory = %s" % MONITOR.top_dir)
 MONITOR.set("top_dir", MONITOR.top_dir)
@@ -1730,10 +1726,11 @@ MONITOR.site_path = os.path.join(MONITOR.top_dir, DB_CONF)
 
 # load the configuration
 pack = None
-load_db("file:" + MONITOR.site_path, MONITOR, True)
+if os.path.exists(MONITOR.site_path):
+	load_db("file:" + MONITOR.site_path, MONITOR, True)
 load_db(DB_URL + "/index.xml", MONITOR)
 conf = MONITOR.get_host_type()
-if conf <> None:
+if conf != None:
 	load_db(DB_URL + "/" + conf + "/index.xml", MONITOR)		
 resolve_reqs(MONITOR)
 
@@ -1759,5 +1756,7 @@ elif args.uninstall:
 	uninstall_packs(get_packs(args.packages, MONITOR), MONITOR)
 elif args.source:
 	install_sources(get_versions(args.packages, MONITOR), MONITOR)
+elif not args.packages and args.default:
+	install_packs(get_versions(DEFAULT, MONITOR), MONITOR)
 else:
 	install_packs(get_versions(args.packages, MONITOR), MONITOR)
