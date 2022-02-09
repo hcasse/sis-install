@@ -126,7 +126,7 @@ def download(addr, mon, to = None):
 		else:
 			path = to
 		in_stream = urllib.request.urlopen(addr)
-		out_stream = open(path, "w")
+		out_stream = open(path, "wb")
 		shutil.copyfileobj(in_stream, out_stream)
 		in_stream.close()
 		out_stream.close()
@@ -733,7 +733,7 @@ class GitDownloader(Downloader):
 		flags = ""
 		if self.tag:
 			flags = "%s --branch %s" % self.tag
-		cmd = "git clone %s %s %s" % (flags, self.address, target)
+		cmd = "git clone %s %s '%s'" % (flags, self.address, target)
 		mon.log("\nDowloading %s: %s" % (self.pack.name, cmd))
 		res = mon.execute(cmd, mon.get_log_file(), mon.get_log_file())
 		return res == 0
@@ -1247,7 +1247,7 @@ def load_db(url, mon, installed = False):
 	except (AssertionError, ET.ParseError):
 		mon.fatal("bad DB. Stopping.")
 	except urllib.error.URLError as e:
-		mon.fatal(e)
+		mon.fatal(str(e))
 
 
 def save_site(path, ipack, mon, uninstall = None, remove = False):
