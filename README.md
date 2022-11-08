@@ -39,7 +39,7 @@ name corresponding to the host OS (using the table below) and ''index.xml''
 to get the binary packages.
 
 | OS      | machine    | directory      |
-+---------+------------+----------------+
+|---------|------------|---------------- -
 | Linux   | x86 32-bit | linux-x86      |
 | Linux   | x86 64-bit | linux-x86_64   |
 | Windows | x86 32-bit | win            |
