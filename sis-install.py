@@ -1545,7 +1545,7 @@ def set_file_exec(path):
 	os.chmod(path, stat.S_IXUSR | os.stat(path).st_mode)
 
 
-def install_root(mon, path, packs):
+def install_root(mon, path, packs, only_init = False):
 	"""Install the root directory, that is, the install database
 	and the installation script itself in the given path and run 
 	the installation of given packages."""
@@ -1566,13 +1566,15 @@ def install_root(mon, path, packs):
 		
 		# create the installation script
 		script_path = __file__
-		mon.comment("installing otawa-install in bin")
+		mon.comment("installing script in bin")
 		bin_dir = os.path.join(mon.top_dir, "bin")
 		ensure_dir(bin_dir)
 		install_re = re.compile("^INSTALLED\s*=.*$")
 		in_file = open(script_path, "r")
 		install_path = os.path.join(bin_dir, os.path.basename(script_path))
 		out_file = open(install_path, "w")
+		out_file.write("#!%s\n" % sys.executable)
+		in_file.readline()
 		for l in in_file.readlines():
 			if install_re.match(l):
 				out_file.write("INSTALLED = True\n")
@@ -1583,20 +1585,22 @@ def install_root(mon, path, packs):
 		set_file_exec(install_path)
 
 		# remove the old one
-		mon.comment("removing old otawa-install")
+		mon.comment("removing old install")
 		old_name = script_path + ".old"
 		os.rename(script_path, old_name)
 		write_file(script_path,
-"""#!/usr/bin/python3
+"""#!%s
 import os
 import sys
 print("WARNING: please use %s instead!")
-os.system(" ".join(["%s --default"] + sys.argv[1:]))
-""" % (install_path, install_path))
+os.system(" ".join(["%s %s --default"] + sys.argv[1:]))
+""" % (sys.executable, install_path, sys.executable, install_path))
 		set_file_exec(script_path)
 
 		# finalize
-		mon.comment("restarting otawa-install")
+		if not only_init:
+			exit(0)
+		mon.comment("restarting install")
 		roots = ["-R", "--root"]
 		args = sys.argv[1:]
 		p = -1
@@ -1689,6 +1693,8 @@ parser.add_argument('--source', '-S', action="store_true",
 	help="only donwload sources (no installation)")
 parser.add_argument('--default', action="store_true",
 	help="install the default packages")
+parser.add_argument("--only-init", action="store_true",
+	help="initialize the database (if required) but do not install default packages")
 parser.add_argument('packages', nargs='*', help="packages to install")
 args = parser.parse_args()
 
@@ -1705,7 +1711,7 @@ MONITOR.comment("build directory = %s" % MONITOR.build_dir)
 
 # find the top directory
 if args.root != None:	
-	install_root(MONITOR, args.root, args.packages)
+	install_root(MONITOR, args.root, args.packages, args.only_init)
 elif not INSTALLED:
 	install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
 	if not MONITOR.ask_yes_no("The packages will be installed in %s: " % install_dir):
