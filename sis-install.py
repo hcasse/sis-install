@@ -285,6 +285,8 @@ class Monitor:
 		if self.build_dir == None:
 			self.build_dir = tempfile.mkdtemp("-sis")
 			self.allocated_build_dir = True
+		else:
+			os.makedirs(self.build_dir, exist_ok = True)
 		return self.build_dir
 
 	def get_log_file(self):
@@ -797,6 +799,11 @@ class Builder:
 		list of uninstall actions for success."""
 		return []
 
+	def gen_make(self, out, mon):
+		"""Generate commands to install the build in a Makefile."""
+		pass
+
+
 class MakeBuilder(Builder):
 	
 	def __init__(self, pack, elt):
@@ -828,6 +835,12 @@ class MakeBuilder(Builder):
 			return []
 		else:
 			return None
+
+	def gen_make(self, out, mon):
+		pref = "\tcd %s" % self.pack.name
+		out.write("%s; make %s >> $(log)\n" % (pref, self.flags))
+		if not self.pack.tool:
+			out.write("%s; make install %s >> $(log)\n" % (pref, self.flags))
 		
 
 class CMakeBuilder(Builder):
@@ -870,6 +883,14 @@ class CMakeBuilder(Builder):
 					acts.append(Remove(file))
 			return acts
 
+	def gen_make(self, out, mon):
+		pref = "\tcd %s" % self.pack.name
+		out.write("%s; cmake . %s >> $(log)\n" % (pref, self.flags))
+		out.write("%s; make >> $(log)\n" % pref)
+		if not self.pack.tool:
+			out.write("%s; make install >> $(log)\n" % pref)
+		
+
 class CommandBuilder(Builder):
 	"""Builder based on a command call."""
 	
@@ -888,9 +909,12 @@ class CommandBuilder(Builder):
 			os.chdir(path)
 			return res == 0
 		else:
-			return True
-		
+			return True		
 
+	def gen_make(self, out, mon):
+		pref = "\tcd %s" % self.pack.name
+		out.write("%s; %s >> $(log)\n" % (pref, self.build_cmd))
+	
 BUILDERS = {
 	"make": MakeBuilder,
 	"cmake": CMakeBuilder,
@@ -1040,6 +1064,11 @@ class SourceVersion(Version):
 				mon.fail()
 				mon.fatal("Installation failed: see errors in build.log")
 
+	def gen_make(self, out, mon):
+		"""Generate the commands for a Makefile to build the source
+		to the given output."""
+		self.build.gen_make(out, mon)
+		
 
 # package definition
 class Package:
@@ -1424,17 +1453,46 @@ def close_packs(vs, mon):
 	return to_install
 	
 
-def install_sources(vs, mon):
-	"""Only install sources."""
+def install_sources(vs, mon, make = False):
+	"""Only install sources (and generate make script)."""
+
+	# gather list of sources
 	if not mon.build_dir:
 		mon.fatal("to use -S, you have to specify a directory with -B!")
 	to_install = close_packs(vs, mon)
+
+	# prepare Makefile if required
+	if make:
+		packs = sorted(to_install, key=lambda v: v.pack.get_rank())
+		path = os.path.join(mon.get_build_dir(), "Makefile")
+		out = open(path, "w")
+		out.write("top_dir=$(PWD)/../%s\n" % DEFAULT_PATH)
+		out.write("log=$(PWD)/build.log\n")
+		for k in mon.env:
+			out.write("%s=%s\n" % (k, mon.env[k]))
+		out.write("\nall: top_dir %s\n\n" % \
+			" ".join("%s-install" % p.pack.name for p in packs))
+		out.write("""
+top_dir:
+	test -e "$(top_dir)" || mkdir "$(top_dir)"
+	echo "Errors recorded in $(log)."
+""")
+
+	# get the sources
 	for p in to_install:
 		s = p.pack.source()
 		if s == None:
 			mon.warn("no source available for %s" % s.name)
 		else:
 			s.download(mon)
+			out.write("\n%s-install: %s\n" % (
+				p.pack.name,
+				" ".join("%s-install" % r.name for r in p.pack.reqs)))
+			s.gen_make(out, mon)
+
+	# close the Makefile
+	if make:
+		out.close()
 
 
 def install_packs(vs, mon):
@@ -1695,6 +1753,8 @@ parser.add_argument('--default', action="store_true",
 	help="install the default packages")
 parser.add_argument("--only-init", action="store_true",
 	help="initialize the database (if required) but do not install default packages")
+parser.add_argument("--makefile", action="store_true",
+	help="Build a makefile to build the modules.")
 parser.add_argument('packages', nargs='*', help="packages to install")
 args = parser.parse_args()
 
@@ -1708,6 +1768,13 @@ MONITOR.verbose = args.verbose
 MONITOR.dry = args.dry
 MONITOR.force = args.force
 MONITOR.comment("build directory = %s" % MONITOR.build_dir)
+
+# source building
+if args.source:
+	load_db(DB_URL + "/index.xml", MONITOR)
+	resolve_reqs(MONITOR)
+	install_sources(get_versions(args.packages, MONITOR), MONITOR, args.makefile)
+	sys.exit(0)
 
 # find the top directory
 if args.root != None:	
@@ -1760,8 +1827,6 @@ elif args.info:
 		info_pack(pack, MONITOR)
 elif args.uninstall:
 	uninstall_packs(get_packs(args.packages, MONITOR), MONITOR)
-elif args.source:
-	install_sources(get_versions(args.packages, MONITOR), MONITOR)
 elif not args.packages and args.default:
 	install_packs(get_versions(DEFAULT, MONITOR), MONITOR)
 else:
