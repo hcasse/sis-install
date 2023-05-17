@@ -1598,7 +1598,7 @@ os.system(" ".join(["%s %s --default"] + sys.argv[1:]))
 		set_file_exec(script_path)
 
 		# finalize
-		if not only_init:
+		if only_init:
 			exit(0)
 		mon.comment("restarting install")
 		roots = ["-R", "--root"]
