@@ -189,9 +189,9 @@ Replace the `...` by the list of your packages using the following format:
 ```
 
 All the entries in the `<package>` is optional. They means:
-* PACK_ -- package identifier used througout the installation commands,
-* DESC_ -- humand-redable description of the package,
-* COPYRIGHT_ -- owner of the copyright of the package, something like
+* _PACK_ -- package identifier used througout the installation commands,
+* _DESC_ -- humand-redable description of the package,
+* _COPYRIGHT_ -- owner of the copyright of the package, something like
   `copyright (c) YEAR - OWNER`
 * _CATEGORY_ -- anything you want, it may be used to sort the packages,
 * _WEB_ -- web address to get information on the package,
@@ -390,6 +390,30 @@ Finally, the action may include a removal action:
 The directory or the file pointed by _PATH_ will be removed. It may be
 an absolute path or a relative path to _TOP_DIR_.
 
+
+## Additional information
+
+In addition to package list, `<sis-extend>` supports additional information tags listed below.
+
+```xml
+<message> TEXT </message>
+```
+This element contains a text that is displayed to the user when the DB is loaded, useful to pass message about the evolution of the software.
+
+```xml
+<description> TEXT </description>
+```
+Provides a description of the DB (not already used but it will be used in the future to identify the different source DB).
+
+```xml
+<installer>
+	<version>VERSION</version>
+	<url>URL</url>
+</installer>
+```
+`sis-install` can now update itself if such a tag is provided. It compares
+its `SIS_VERSION` with the version of the DB and if lower, download and install
+the new version available at given URL. Basically, this operation is not automatic and must be invoked with `-U` option but an information is displayed to the user as soon as a new version is availble.
 
 
 ## Customizing the script the script

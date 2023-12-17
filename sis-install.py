@@ -55,7 +55,7 @@ NULL_VERS = "0.0"
 SRCE_VERS = "source"
 SIS_EXTEND_TAG = "sis-extend"
 SIS_INSTALL_TAG = "sis-install"
-SIS_VERSION = "1.0"
+SIS_VERSION = "1.1"
 
 KNOWN_CONFIGS = {
 	("Linux",	"i686", 	32)	: "linux-x86",
@@ -909,7 +909,7 @@ class CommandBuilder(Builder):
 			os.chdir(path)
 			return res == 0
 		else:
-			return True		
+			return True
 
 	def gen_make(self, out, mon):
 		pref = "\tcd %s" % self.pack.name
@@ -1183,11 +1183,20 @@ def load_db(url, mon, installed = False):
 		doc = ET.parse(stream)
 		root = doc.getroot()
 		assert root.tag == SIS_EXTEND_TAG
+
+		# any message?
+		message = root.find("message")
+		if message is not None:
+			mon.say(BLUE + BOLD + "INFO: " + NORMAL + message.text)
 		
 		# manage script version
-		version = root.find("version")
-		if version != None and Version(version) < Version(SIS_VERSION):
-			mon.update = True
+		installer = root.find("installer")
+		if installer != None:
+			version = installer.find("version")
+			installer_url = installer.find("url")
+			if version != None and Version(SIS_VERSION) < Version(version.text):
+				mon.update = True
+				mon.installer_url = str(installer_url.text)
 		
 		# parse the content
 		for p in root.findall("package"):
@@ -1272,11 +1281,12 @@ def load_db(url, mon, installed = False):
 						action = get_action(aelt, mon)
 						assert action != None
 						pack.uninstall.append(action)
-			
+
+		return None
 	except (AssertionError, ET.ParseError):
-		mon.fatal("bad DB. Stopping.")
+		return "bad DB. Stopping."
 	except urllib.error.URLError as e:
-		mon.fatal(str(e))
+		return str(e)
 
 
 def save_site(path, ipack, mon, uninstall = None, remove = False):
@@ -1485,10 +1495,11 @@ top_dir:
 			mon.warn("no source available for %s" % s.name)
 		else:
 			s.download(mon)
-			out.write("\n%s-install: %s\n" % (
-				p.pack.name,
-				" ".join("%s-install" % r.name for r in p.pack.reqs)))
-			s.gen_make(out, mon)
+			if make:
+				out.write("\n%s-install: %s\n" % (
+					p.pack.name,
+					" ".join("%s-install" % r.name for r in p.pack.reqs)))
+				s.gen_make(out, mon)
 
 	# close the Makefile
 	if make:
@@ -1683,39 +1694,56 @@ os.system(" ".join(["%s %s --default"] + sys.argv[1:]))
 
 def update_installer(mon):
 	"""Update the installer version."""
-	new_path = os.join(os.path.dirname(__file__), ".new.py")
-	old_path = os.join(os.path.dirname(__file__), ".old.py")
+	new_path = os.path.join(os.path.dirname(__file__), ".new.py")
+	old_path = os.path.join(os.path.dirname(__file__), ".old.py")
 	install_path = __file__
 
 	# download the new version as .new.py
-	mon.say("downloading the new version")
+	mon.check("downloading the new installer version")
 	try:
-		new_path = download(DB_URL + os.path.basename(__file__), mon, new_path)
+		if mon.installer_url == None:
+			mon.installer_url = DB_URL + os.path.basename(__file__)
+		new_path = download(mon.installer_url, mon, new_path)
 		mon.succeed()
 	except IOError as e:
-		mon.fail("error during the update of the installer: falling back to the current version:\n" %  e)
+		mon.fail()
+		mon.error("error during the update of the installer: falling back to the current version: %s\n" %  e)
 		return
+
+	# copy rights from installer to .new.py
+	mon.check("installing the installer")
+	try:
+		os.chmod(new_path, stat.S_IXUSR|stat.S_IRUSR)
+	except OSError as e:
+		mon.fail()
+		mon.error("cannot make the new installer executable: %s" % e)
 	
-	# renaming
-	mon.say("installing the installer")
+	# renaming installer to .old.py
 	try:
 		os.rename(install_path, old_path)
 	except OSError as e:
-		mon.fail("the installer cannot be changed. No update performed.\n%s" % e)
+		mon.fail()
+		mon.error("the installer cannot be changed. No update performed.\n%s" % e)
 		return
+
+	# renaming .new.py to installer
 	try:
-		os.renamed(new_path, install_path)
+		os.rename(new_path, install_path)
 	except OSError as e:
-		mon.fail("Nasty thing: cannot set the new installer. Trying to reset the old one.\n%s" % e) 
+		mon.fail()
+		mon.error("Nasty thing: cannot set the new installer. Trying to reset the old one.\n%s" % e) 
 		try:
 			os.renamed(old_path, install_path)
 		except OSError as e:
 			mon.error("cannot re-install old installer but it can be found at %s" % old_path)
 		return
+
+	# cleanup .old.py
 	try:
 		os.remove(old_path)
 	except OErrror as e:
-		os.fail("New installer ready. Cannot remove old installer in %s.\n%s" % (old_path, e))
+		mon.fail()
+		mon.error("New installer ready. Cannot remove old installer in %s.\n%s" % (old_path, e))
 		return
 	mon.succeed()
 
@@ -1771,7 +1799,9 @@ MONITOR.comment("build directory = %s" % MONITOR.build_dir)
 
 # source building
 if args.source:
-	load_db(DB_URL + "/index.xml", MONITOR)
+	res = load_db(DB_URL + "/index.xml", MONITOR)
+	if res is not None:
+		MONITOR.fatal("cannot load remote db: %s" % res)
 	resolve_reqs(MONITOR)
 	install_sources(get_versions(args.packages, MONITOR), MONITOR, args.makefile)
 	sys.exit(0)
@@ -1801,10 +1831,14 @@ MONITOR.site_path = os.path.join(MONITOR.top_dir, DB_CONF)
 pack = None
 if os.path.exists(MONITOR.site_path):
 	load_db("file:" + MONITOR.site_path, MONITOR, True)
-load_db(DB_URL + "/index.xml", MONITOR)
+res = load_db(DB_URL + "/index.xml", MONITOR)
+if res is not None:
+	MONITOR.fatal("cannot open remote DB: %s" % res)
 conf = MONITOR.get_host_type()
 if conf != None:
-	load_db(DB_URL + "/" + conf + "/index.xml", MONITOR)		
+	res = load_db(DB_URL + "/" + conf + "/index.xml", MONITOR)
+	if res is not None:
+		MONITOR.comment("cannot load binary DB: %s" % res)
 resolve_reqs(MONITOR)
 
 # warning about thew new version
@@ -1817,7 +1851,7 @@ if args.update_installer:
 		pass
 		sys.exit(0)
 elif MONITOR.update:
-	MONITOR.warn("a new version of installer is available! Install with option -U")
+	MONITOR.warn("a new version of installer is available! Install it with option -U!")
 
 # perform actions
 if args.list:
