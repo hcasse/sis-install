@@ -1,0 +1,47 @@
+#
+# Switches
+#
+WITH_EABI:bool		= 1			# comment it to disable EABI support (no system call)
+WITH_DISASM: bool	= 1			# comment it to prevent disassembler building
+WITH_SIM:bool		= 1			# comment it to prevent simulator building
+WITH_THUMB:bool		= 1			# comment it to prevent use of THUMB mode
+WITH_DYNLIB:bool	= 0 		# uncomment it to link in dynamic library
+WITH_IO:bool		= 0			# uncomment it to use IO memory (slower but allowing callback)
+WITH_MEM_SPY:bool	= 0			# uncommant to enable memory spy callback
+WITH_PYTHON:bool	= 0			# uncomment build Python interface
+#
+# Paths
+#
+PYTHON:path			= !which python3 	# path to Python3
+GLISS2:path			= !lookup mydir	# path to GLISS2
+BOF:path			= !lookup ../bof \
+					|| bif	# alternative
+SIS_INSTALL:path	= !git https://github.com/hcasse/sis-install.git
+
+!os-info
+
+#
+# pipe test
+#
+PIPE1				= myc | make | lower
+PIPE2				= myc | isdir
+PIPE3				= myc \
+						& / hello.c | echo DEBUG: | exists
+#PIPE4				= myc \
+						& / hello.cc | exists
+
+#
+# evals
+#
+MORE_PYTHON = **$(PYTHON)**		# = **python**
+EMORE_PY = /here | / $(PYTHON)	# = /here/usr/bin/python3
+EEMORE_PY = python3 | echo $(MORE_PYTHON)
+
+#
+# Echo
+#
+!echo Hello, World!
+
+!gen config.h.in config.h
+
+
