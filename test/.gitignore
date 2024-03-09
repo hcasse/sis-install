@@ -2,3 +2,4 @@ config.h
 config.mk
 myc/hello
 sis-install
+*.out

@@ -10,7 +10,6 @@ import sys
 import traceback
 
 VERSION = "0.1"
-OUTPUT_PATH = "config.mk"
 STDOUT = None
 STDERR = None
 QUIET = False
@@ -37,12 +36,13 @@ OS_INFO = {
 
 SPACE_RE = re.compile('\s')
 
-def fatal(num, message, return_code=1):
-	"""Display an error and stops the script with the rerturn_code parameter (default to 1)."""
-	if num == None:
+def fatal(message, source=None, return_code=1):
+	"""Display an error and stops the script with the rerturn_code parameter (default to 1). Source must be a pair (source path,source line)."""
+	if source == None:
 		sys.stderr.write("ERROR: %s\n" % message)
 	else:
-		sys.stderr.write("ERROR: config.in:%d: %s\n" % (num, message))
+		file, line = source
+		sys.stderr.write("ERROR: %s:%d: %s\n" % (file, line, message))
 	exit(return_code)
 
 def info(message):
@@ -101,16 +101,41 @@ class ParseException(ConfigException):
 		ConfigException.__init__(self, msg)
 
 
+class Action:
+	"""Base class of Source, Pipe and Command. Provide support for source file:line information for error display."""
+
+	def __init__(self):
+		self.source = None
+		self.line = None
+
+	def set_source(self, file, line):
+		self.source = (file, line)
+
+	def get_source(self):
+		"""Get source information."""
+		return self.source
+
+	def error(self):
+		"""Called to get an error message for the current action."""
+		return ""
+
+	def fatal(self, message = None):
+		"""Display fatal error for the current action."""
+		if message == None:
+			message = self.error()
+		fatal(message, self.get_source())
+
+
 ###### Sources ######
 
-class Source:
+class Source(Action):
 	"""A source is element that generate a string, typically a path after the realization of some operations."""
 	MAP = {}
 
 	def __init__(self, args):
 		"""Build the source with the given arguments (list of strings).
 		In case of error, the constructor can raise ParException."""
-		pass
+		Action.__init__(self)
 
 	def eval(self, env):
 		"""Called to evaluate the source with the given environment.
@@ -264,12 +289,12 @@ class Check(Source):
 
 ####### Pipes ######
 
-class Pipe:
+class Pipe(Action):
 	"""Pipe objects takes a string as inputd return the string possibly transformed. If a None is returned, the pipe work is considered as failed."""
 	MAP = {}
 
-	def __init__(self, args):
-		"""Build a pipe with args parameters (list of strings). In case of error, the constructor can raise ParException."""
+	def __init__(self):
+		Action.__init__(self)
 
 	def process(self, input, env):
 		"""Transform the string as input in the given environment.
@@ -281,7 +306,7 @@ class Pipe:
 		return None
 
 	def declare(name, pipe):
-		"""Declare a new pipe with the given name. Pipe must the constructor to the pipe class."""
+		"""Declare a new pipe with the given name. Pipe must the constructor to the pipe class. This constructor will be invoked with a list of strings as arguments."""
 		Pipe.MAP[name] = pipe
 
 	def make(name, args):
@@ -400,13 +425,12 @@ class Pipeline(Pipe):
 
 ###### Commands ######
 
-class Command:
+class Command(Action):
 	"""A command is an evaluation element at the top-level of the script. It is evaluated and, if there is no failure, is used to output Makefile definitions. In case of error, the constructor can raise ParException."""
 	MAP = { }
 
-	def __init__(self, args):
-		"""Build a comand with args, the string following the command."""
-		pass
+	def __init__(self):
+		Action.__init__(self)
 
 	def process(self, env):
 		"""Evaluate the command in the given environment. If the command fails, it has to call fatal() function."""
@@ -417,7 +441,7 @@ class Command:
 		pass
 
 	def declare(name, command):
-		"""Declare a new command (that must be prefixed by !). Command is the constructor to the actual class of the command."""
+		"""Declare a new command (that must be prefixed by !). Command is the constructor to the actual class of the command. This constructor will be called as argument the remaining of the line as argument."""
 		Command.MAP[name] = command
 
 	def make(name, args):
@@ -431,6 +455,7 @@ class Command:
 class Definition(Command):
 
 	def __init__(self, name, type, action, comment):
+		Command.__init__(self)
 		self.name = name
 		self.type = type
 		self.action = action
@@ -442,7 +467,7 @@ class Definition(Command):
 		except KeyError:
 			self.value = self.action.eval(env)
 			if self.value is None:
-				fatal(self.num, self.action.error())
+				self.fatal()
 			env[self.name] = self.value
 
 	def output(self, out):
@@ -457,6 +482,7 @@ class Definition(Command):
 class Comment(Command):
 
 	def __init__(self, comment):
+		Command.__init__(self)
 		self.comment = comment
 
 	def output(self, out):
@@ -468,6 +494,7 @@ class Comment(Command):
 class OSInfo(Command):
 
 	def __init__(self, args):
+		Command.__init__(self)
 		if args != "":
 			raise ParseException("!os-info does not accept any argument!")
 
@@ -485,6 +512,7 @@ Command.declare('!os-info', OSInfo)
 class EchoCommand(Command):
 
 	def __init__(self, args):
+		Command.__init__(self)
 		self.args = args
 
 	def process(self, env):
@@ -496,6 +524,7 @@ Command.declare('!echo', EchoCommand)
 class Gen(Command):
 
 	def __init__(self, args):
+		Command.__init__(self)
 		self.args = args
 
 	def process(self, env):
@@ -503,7 +532,7 @@ class Gen(Command):
 		# parse args
 		args = [arg.strip() for arg in eval_arg(self.args.strip(), env).split()]
 		if len(args) != 2:
-			fatal(self.num, '!gen requires as argument: input output.')
+			self.fatal('!gen requires as argument: input output.')
 		in_path = args[0]
 		out_path = args[1]
 
@@ -514,9 +543,26 @@ class Gen(Command):
 					for l in input.readlines():
 						out.write(eval_arg(l, env))
 		except FileNotFoundError as e:
-			fatal(self.num, str(e))
+			self.fatal(str(e))
 
 Command.declare('!gen', Gen)
+
+
+class Include(Command):
+
+	def __init__(self, args):
+		Command.__init__(self)
+		self.commands = parse_script(args.strip())
+
+	def process(self, env):
+		for command in self.commands:
+			command.process(env)
+
+	def output(self, out):
+		for command in self.commands:
+			command.output(out)
+
+Command.declare('!include', Include)
 
 
 ###### Script parsing ######
@@ -545,11 +591,11 @@ def parse_var(num, line):
 
 		# add the variable
 		if type not in ['string', 'bool', 'int', 'path']:
-			fatal(num, "unknown type %s" % type)
+			fatal("unknown type %s" % type, source=num)
 		return (name, type, value, comment)
 		
 	except ValueError:
-		fatal(num, "garbage here!")
+		self.fatal("garbage here!")
 
 
 def parse_source(num, action):
@@ -560,17 +606,17 @@ def parse_source(num, action):
 		try:
 			return Source.make(args[0], args[1:])
 		except ParseException as e:
-			fatal(num, str(e))
+			fatal(str(e), source=num)
 
 
 def parse_pipe(num, action):
 	args = [arg.strip() for arg in action.split()]
 	if len(args) == 0:
-		fatal(num, "empty pipe action")
+		fatal("empty pipe action", source=num)
 	try:
 		return Pipe.make(args[0], args[1:])
 	except ParseException as e:
-		fatal(num, str(e))
+		fatal(str(e), source=num)
 
 
 def parse_pipeline(num, action):
@@ -597,7 +643,7 @@ def parse_check(num, action):
 		try:
 			return Check(source, [parse_pipeline(num, pipe) for pipe in actions[1:]])
 		except ParseException as e:
-			fatal(num, str(e))
+			fatal(str(e), source=num)
 
 
 def parse_alts(num, action):
@@ -616,7 +662,7 @@ def parse_alts(num, action):
 def parse_script(path):
 	commands = []
 
-	with open("config.in") as input:
+	with open(path) as input:
 		num = 0
 		pref = ""
 		for l in input.readlines():
@@ -642,17 +688,17 @@ def parse_script(path):
 				try:
 					command = Command.make(command, args)
 				except ParseException as e:
-					fatal(num, str(e))
+					fatal(str(e), num)
 			else:
-				name, type, action, comment = parse_var(num, l)
+				name, type, action, comment = parse_var((path, num), l)
 				try:
-					action = parse_alts(num, action)
+					action = parse_alts((path, num), action)
 				except ParseException as e:
-					fatal(num, str(e))
+					fatal(str(e), source=num)
 				command = Definition(name, type, action, comment)
 				
 			commands.append(command)
-			command.num = num
+			command.set_source(path, num)
 
 	return commands
 
@@ -669,6 +715,8 @@ def run():
 	parser.add_argument('-q', '--quiet', action='store_true', help='enable quiet mode.')
 	parser.add_argument('--os-info', action='store_true', help='generate OS information definitions.')
 	parser.add_argument('--log', nargs='?', const="config.log", help="create log (default to config.log).")
+	parser.add_argument('--input', '-i', default='config.in', help="script taken as input.")
+	parser.add_argument('--output', '-o', default='config.mk', help="generated file as output.")
 
 	args = parser.parse_args()
 	if args.quiet:
@@ -679,7 +727,8 @@ def run():
 		STDOUT = out
 		STDERR = out
 		LOGGING = True
-
+	input_path = args.input
+	output_path = args.output
 
 	# build environment
 	env = dict(os.environ)
@@ -693,18 +742,18 @@ def run():
 			fatal(None, "bad argument %s" % arg)
 
 	# parse the scripts
-	commands = parse_script('config.in')
+	commands = parse_script(input_path)
 
 	# evaluate the script
 	for command in commands:
 		command.process(env)
 
 	# generate
-	with open(OUTPUT_PATH, "w") as out:
+	with open(output_path, "w") as out:
 		for command in commands:
 			command.output(out)
 	
-	info("configuration generated in '%s'" % OUTPUT_PATH)
+	info("configuration generated in '%s'" % output_path)
 
 
 if __name__ == '__main__':
