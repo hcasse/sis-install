@@ -37,14 +37,16 @@ OS_INFO = {
 
 SPACE_RE = re.compile('\s')
 
-def fatal(num, message):
+def fatal(num, message, return_code=1):
+	"""Display an error and stops the script with the rerturn_code parameter (default to 1)."""
 	if num == None:
 		sys.stderr.write("ERROR: %s\n" % message)
 	else:
 		sys.stderr.write("ERROR: config.in:%d: %s\n" % (num, message))
-	exit(1)
+	exit(return_code)
 
 def info(message):
+	"""Display information to the user."""
 	if not QUIET:
 		sys.stdout.write("INFO: %s\n" % message)
 	if LOGGING:
@@ -52,6 +54,7 @@ def info(message):
 		STDOUT.flush()
 
 def execute(cmd, dir = None):
+	"""Execute the command as a shell command in the dir directory (default current directory)."""
 	if dir == None:
 		dir = os.getcwd()
 	cp = subprocess.run(cmd, shell=True, cwd = dir, stdout=STDOUT, stderr=STDERR)
@@ -59,7 +62,8 @@ def execute(cmd, dir = None):
 
 VAR_RE = re.compile('\$\$|\$\(([^\)]+)\)|\$(\S+)')
 
-def eval_arg(text, map):
+def eval_arg(text, env):
+	"""Transform the text by replacing $-prefixed variables by the definitions in the env dictionary."""
 	res = ''
 	match = VAR_RE.search(text)
 	while match is not None:
@@ -69,7 +73,7 @@ def eval_arg(text, map):
 			res += '$'
 		else:
 			try:
-				res += map[found]
+				res += env[found]
 			except KeyError:
 				pass
 		text = text[match.end():]  
@@ -77,8 +81,10 @@ def eval_arg(text, map):
 	return res + text
 
 
-def eval_args(args, map):
-	return [eval_arg(arg, map) for arg in args]
+def eval_args(args, env):
+	"""Transform arguments by replacing $-prefixed variables by the definitions in the env dictionary."""
+	return [eval_arg(arg, env) for arg in args]
+
 
 class ConfigException(Exception):
 
@@ -89,6 +95,7 @@ class ConfigException(Exception):
 		return self.msg
 	
 class ParseException(ConfigException):
+	"""Exception raised if there is a parsing error."""
 
 	def __init__(self, msg):
 		ConfigException.__init__(self, msg)
@@ -97,18 +104,29 @@ class ParseException(ConfigException):
 ###### Sources ######
 
 class Source:
+	"""A source is element that generate a string, typically a path after the realization of some operations."""
 	MAP = {}
 
+	def __init__(self, args):
+		"""Build the source with the given arguments (list of strings).
+		In case of error, the constructor can raise ParException."""
+		pass
+
 	def eval(self, env):
+		"""Called to evaluate the source with the given environment.
+		This function has to return the resulting string or None to represent failure."""
 		return None
 
 	def error(self):
+		"""Called to produce as string the last error of this source."""
 		return None
 
 	def declare(name, source):
+		"""Declare a new source (that must be prefixed by !). Source must be the constructor of the source class."""
 		Source.MAP[name] = source
 
 	def make(name, args):
+		"""Build a source with name and args parameters."""
 		try:
 			return Source.MAP[name](args)
 		except KeyError:
@@ -247,18 +265,27 @@ class Check(Source):
 ####### Pipes ######
 
 class Pipe:
+	"""Pipe objects takes a string as inputd return the string possibly transformed. If a None is returned, the pipe work is considered as failed."""
 	MAP = {}
 
+	def __init__(self, args):
+		"""Build a pipe with args parameters (list of strings). In case of error, the constructor can raise ParException."""
+
 	def process(self, input, env):
+		"""Transform the string as input in the given environment.
+		If None is returned, the proccessing is considered as failed."""
 		passs
 
 	def error(self):
+		"""Called to explicit the last error of this pipe."""
 		return None
 
 	def declare(name, pipe):
+		"""Declare a new pipe with the given name. Pipe must the constructor to the pipe class."""
 		Pipe.MAP[name] = pipe
 
 	def make(name, args):
+		"""Build a pipe with the given name and arguments (list of strings)."""
 		try:
 			return Pipe.MAP[name](args)
 		except KeyError:
@@ -315,18 +342,20 @@ Pipe.declare("echo", Echo)
 
 
 def from_fun(name, f, n = 0):
+	"""Build a pipe from a Python function f. n is the number of parameters after the first one. The parameters passed to f is the input of the pipe followed by arguments in the pipe invocation."""
 	class FromFun(Pipe):
 		def __init__(self, args):
 			if len(args) != n:
 				raise ParseException('"%s" requires %d arguments!' % (name, n))
 			self.args = args
-		def process(self, input, eval):
+		def process(self, input, env):
 			return f(*([input] + eval_args(self.args, env)))
 		def error(self):
 			return '"%s%s" failed!' % (name, " ".join(self.args))
 	Pipe.declare(name, FromFun)
 
 def check_fun(name, f, n = 0):
+	"""Build a pipe from a Python function f returning a boolean. f takes as parameter the input of the pipe followed by the arguments from the actual invocation. Returning true returns the input string, false returns None."""
 	from_fun(name, lambda x: x if f(x) else None, n)
 
 from_fun('/', os.path.join, 1)
@@ -372,18 +401,27 @@ class Pipeline(Pipe):
 ###### Commands ######
 
 class Command:
+	"""A command is an evaluation element at the top-level of the script. It is evaluated and, if there is no failure, is used to output Makefile definitions. In case of error, the constructor can raise ParException."""
 	MAP = { }
 
+	def __init__(self, args):
+		"""Build a comand with args, the string following the command."""
+		pass
+
 	def process(self, env):
+		"""Evaluate the command in the given environment. If the command fails, it has to call fatal() function."""
 		pass
 
 	def output(self, out):
+		"""Called to generate the output file that is supposed to be included in Makefile."""
 		pass
 
 	def declare(name, command):
+		"""Declare a new command (that must be prefixed by !). Command is the constructor to the actual class of the command."""
 		Command.MAP[name] = command
 
 	def make(name, args):
+		"""Build a command from name and arguments parameters."""
 		try:
 			return Command.MAP[name](args)
 		except KeyError:
@@ -572,92 +610,104 @@ def parse_alts(num, action):
 		return Alt([parse_check(num, alt) for alt in alts])
 
 
-# process arguments
-parser = argparse.ArgumentParser(
-	prog="config",
-	description="generate configuration to include inbn Makefile.",
-	usage="call config.py in a directory containg config.in"
-)
-parser.add_argument('defs', nargs='*', help="definitions to include in the configuration")
-parser.add_argument('-q', '--quiet', action='store_true', help='enable quiet mode.')
-parser.add_argument('--os-info', action='store_true', help='generate OS information definitions.')
-parser.add_argument('--log', nargs='?', const="config.log", help="create log (default to config.log).")
 
-args = parser.parse_args()
-if args.quiet:
-	QUIET = True
-	STDOUT = subprocess.DEVNULL
-if args.log:
-	out = open(args.log, "w")
-	STDOUT = out
-	STDERR = out
-	LOGGING = True
-
-
-# build environment
-env = dict(os.environ)
-for arg in args.defs:
-	try:
-		p = arg.index('=')
-		name = arg[:p].strip()
-		value = arg[p+1:].strip()
-		env[name] = value
-	except ValueError:
-		fatal(None, "bad argument %s" % arg)
-
-
-# command supports
-COMMANDS = []
-
-def add_command(num, command):
-	command.num = num
-	COMMANDS.append(command)
 
 # parse the script
-with open("config.in") as input:
-	num = 0
-	pref = ""
-	for l in input.readlines():
-		num = num + 1
-		l = l.strip()
-		if l == "":
-			continue
-		if l.endswith('\\'):
-			pref += l[:-1]
-			continue
-		l = pref + l
-		pref = ''
-		if l.startswith("#"):
-			add_command(num, Comment(l[1:]))
-		elif l.startswith('!'):
-			match = SPACE_RE.search(l)
-			if match is None:
-				command = l
-				args = ""
+def parse_script(path):
+	commands = []
+
+	with open("config.in") as input:
+		num = 0
+		pref = ""
+		for l in input.readlines():
+			num = num + 1
+			l = l.strip()
+			if l == "":
+				continue
+			if l.endswith('\\'):
+				pref += l[:-1]
+				continue
+			l = pref + l
+			pref = ''
+			if l.startswith("#"):
+				command = Comment(l[1:])
+			elif l.startswith('!'):
+				match = SPACE_RE.search(l)
+				if match is None:
+					command = l
+					args = ""
+				else:
+					command = l[:match.start()]
+					args = l[match.end():]
+				try:
+					command = Command.make(command, args)
+				except ParseException as e:
+					fatal(num, str(e))
 			else:
-				command = l[:match.start()]
-				args = l[match.end():]
-			try:
-				add_command(num, Command.make(command, args))
-			except ParseException as e:
-				fatal(num, str(e))
-		else:
-			name, type, action, comment = parse_var(num, l)
-			try:
-				action = parse_alts(num, action)
-			except ParseException as e:
-				fatal(num, str(e))
-			add_command(num, Definition(name, type, action, comment))
+				name, type, action, comment = parse_var(num, l)
+				try:
+					action = parse_alts(num, action)
+				except ParseException as e:
+					fatal(num, str(e))
+				command = Definition(name, type, action, comment)
+				
+			commands.append(command)
+			command.num = num
+
+	return commands
 
 
-# evaluate the script
-for command in COMMANDS:
-	command.process(env)
-
-# generate
-with open(OUTPUT_PATH, "w") as out:
-	for command in COMMANDS:
-		command.output(out)
+def run():
 	
-info("configuration generated in '%s'" % OUTPUT_PATH)
+	# process arguments
+	parser = argparse.ArgumentParser(
+		prog="config",
+		description="generate configuration to include inbn Makefile.",
+		usage="call config.py in a directory containg config.in"
+	)
+	parser.add_argument('defs', nargs='*', help="definitions to include in the configuration")
+	parser.add_argument('-q', '--quiet', action='store_true', help='enable quiet mode.')
+	parser.add_argument('--os-info', action='store_true', help='generate OS information definitions.')
+	parser.add_argument('--log', nargs='?', const="config.log", help="create log (default to config.log).")
 
+	args = parser.parse_args()
+	if args.quiet:
+		QUIET = True
+		STDOUT = subprocess.DEVNULL
+	if args.log:
+		out = open(args.log, "w")
+		STDOUT = out
+		STDERR = out
+		LOGGING = True
+
+
+	# build environment
+	env = dict(os.environ)
+	for arg in args.defs:
+		try:
+			p = arg.index('=')
+			name = arg[:p].strip()
+			value = arg[p+1:].strip()
+			env[name] = value
+		except ValueError:
+			fatal(None, "bad argument %s" % arg)
+
+	# parse the scripts
+	commands = parse_script('config.in')
+
+	# evaluate the script
+	for command in commands:
+		command.process(env)
+
+	# generate
+	with open(OUTPUT_PATH, "w") as out:
+		for command in commands:
+			command.output(out)
+	
+	info("configuration generated in '%s'" % OUTPUT_PATH)
+
+
+if __name__ == '__main__':
+	run()
+
+	
