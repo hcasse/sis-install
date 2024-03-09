@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import importlib.util
 import os
 import os.path
 import re
@@ -132,9 +133,7 @@ class Source(Action):
 	"""A source is element that generate a string, typically a path after the realization of some operations."""
 	MAP = {}
 
-	def __init__(self, args):
-		"""Build the source with the given arguments (list of strings).
-		In case of error, the constructor can raise ParException."""
+	def __init__(self):
 		Action.__init__(self)
 
 	def eval(self, env):
@@ -565,6 +564,22 @@ class Include(Command):
 Command.declare('!include', Include)
 
 
+class Import(Command):
+
+	def __init__(self, args):
+		Command.__init__(self)
+		path = args.strip()
+		name = os.path.basename(path).removesuffix('.py')
+		spec = importlib.util.spec_from_file_location(name, path)
+		module = importlib.util.module_from_spec(spec)
+		try:
+			spec.loader.exec_module(module)
+		except FileNotFoundError as e:
+			raise ParseException(str(e))
+
+Command.declare('!import', Import)
+
+
 ###### Script parsing ######
 
 def parse_var(num, line):
@@ -688,7 +703,7 @@ def parse_script(path):
 				try:
 					command = Command.make(command, args)
 				except ParseException as e:
-					fatal(str(e), num)
+					fatal(str(e), (path, num))
 			else:
 				name, type, action, comment = parse_var((path, num), l)
 				try:
@@ -717,6 +732,8 @@ def run():
 	parser.add_argument('--log', nargs='?', const="config.log", help="create log (default to config.log).")
 	parser.add_argument('--input', '-i', default='config.in', help="script taken as input.")
 	parser.add_argument('--output', '-o', default='config.mk', help="generated file as output.")
+
+	global QUIET, STDOUT, STDERR, LOGGING
 
 	args = parser.parse_args()
 	if args.quiet:
@@ -757,6 +774,9 @@ def run():
 
 
 if __name__ == '__main__':
+	#for name in sys.modules:
+	#	print(name, ":", sys.modules[name])
+	sys.modules["config"] = sys.modules["__main__"]
 	run()
 
 	

@@ -150,6 +150,8 @@ In place of definitions and comments, `!`-prefixed are also supported:
 
 * `!echo` _ARGS_ - display _ARGS_ at the definition evaluation time.
 * `!gen` _INPUT_ _OUTPUT_ - generate _OUTPUT_ file from _INPUT_ file that may contain `$`-prefixed variables with the definitions produced in `config.mk`.
+* `!import` _PATH_ - import a Python script used to add new pipes, sources and commands. The Python script has just to define classes for these action and add the `declare` class function to make these action available.
+* `!include` _PATH_ - include another script in the current script.
 * `!os-info` - generate a list of definitions providing information about OS and providing portability definitions (see below for the provided definitions).
 
 
