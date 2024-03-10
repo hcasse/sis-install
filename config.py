@@ -150,7 +150,7 @@ class Action:
 
 	def error(self):
 		"""Called to get an error message for the current action."""
-		return ""
+		return "?"
 
 	def fatal(self, message = None):
 		"""Display fatal error for the current action."""
@@ -316,6 +316,32 @@ class Check(Source):
 
 	def error(self):
 		return self.failed.error() 
+
+
+class Read(Source):
+
+	def __init__(self, args):
+		Source.__init__(self)
+		self.args = args
+
+	def eval(self, env):
+		args = eval_args(self.args, env)
+		res = ""
+		for arg in args:
+			try:
+				with open(arg) as input:
+					for l in input.readlines():
+						l = l.removesuffix('\n')
+						res = res + ' ' + l
+			except OSError as e:
+				self.msg = str(e)
+				return None
+		return res
+
+	def error(self):
+		return self.msg
+
+Source.declare('!read', Read)
 
 
 ####### Pipes ######
@@ -502,13 +528,17 @@ class Definition(Command):
 			env[self.name] = self.value
 
 	def output(self, out):
-		if self.type == "bool" and not int(self.value):
+		if self.type == "bool" and (self.value  == "" or not int(self.value)):
 			out.write('#')
 			self.value = 1
 		out.write('%s = %s\t' % (self.name, self.value))
 		if self.comment != '':
 			out.write('# %s' % self.comment)
 		out.write('\n')
+
+	def error(self):
+		return self.action.error()
+
 
 class Comment(Command):
 
