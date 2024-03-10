@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import os
 import os.path
+import platform
 import re
 import shutil
 import subprocess
@@ -19,6 +20,8 @@ LOGGING = False
 OS_INFO = {
 	"linux": [
 		"OS = linux",
+		"IS_LINUX = 1",
+		"IS_UNIX = 1",
 		"EXEC =",
 		"LIBDYN_SUFF = .so",
 		"LIBDYN_PREF = lib",
@@ -27,29 +30,58 @@ OS_INFO = {
 	],
 	"darwin": [
 		"OS = darwin",
+		"IS_DARWIN = 1",
+		"IS_UNIX = 1",
 		"EXEC =",
 		"LIBDYN_SUFF = .dynlib",
 		"LIBDYN_PREF =",
 		"LIB_SUFF = .a",
 		"LIB_PREF = lib"
+	],
+	"windows": [
+		"OS = windows",
+		"IS_WINDOWS = 1",
+		"EXEC = .exe",
+		"LIBDYN_SUFF = .dll",
+		"LIBDYN_PREF = ",
+		"LIB_SUFF = .lib",
+		"LIB_PREF = "
 	]
 }
 
 SPACE_RE = re.compile('\s')
 
+# ANSI escapes
+PLAIN_ESC = "\033[0m"
+INFO_ESC = "\033[1;36m"
+ERROR_ESC = "\033[1;91m"
+ANSI_SUPPORT = sys.platform != "windows" and os.isatty(sys.stdout.fileno())
+ANSI_STDERR = sys.platform != "windows" and os.isatty(sys.stderr.fileno())
+
+
+####### Tool functions ######
+
 def fatal(message, source=None, return_code=1):
 	"""Display an error and stops the script with the rerturn_code parameter (default to 1). Source must be a pair (source path,source line)."""
+	if ANSI_STDERR:
+		sys.stderr.write(ERROR_ESC + 'ERROR: ' + PLAIN_ESC)
+	else:
+		sys.stderr.write('ERROR: ')		
 	if source == None:
-		sys.stderr.write("ERROR: %s\n" % message)
+		sys.stderr.write("%s\n" % message)
 	else:
 		file, line = source
-		sys.stderr.write("ERROR: %s:%d: %s\n" % (file, line, message))
+		sys.stderr.write("%s:%d: %s\n" % (file, line, message))
 	exit(return_code)
 
 def info(message):
 	"""Display information to the user."""
 	if not QUIET:
-		sys.stdout.write("INFO: %s\n" % message)
+		if ANSI_SUPPORT:
+			sys.stdout.write(INFO_ESC + "INFO: " + PLAIN_ESC)
+		else:
+			sys.stdout.write("INFO: ")
+			sys.stdout.write("%s\n" % message)
 	if LOGGING:
 		STDOUT.write("INFO: %s\n" % message)
 		STDOUT.flush()
@@ -501,8 +533,12 @@ class OSInfo(Command):
 		out.write('\n# OS Information\n\n')
 		out.write('BYTE_ORDER = %s\n' % sys.byteorder)
 		out.write('DEFAULT_ENCODING = %s\n' % sys.getdefaultencoding())
-		info = OS_INFO[sys.platform]
-		for line in info:
+		out.write('MACHINE = %s\n' % platform.machine())
+		out.write('HOST_NAME = %s\n' % platform.node())
+		if not ANSI_SUPPORT:
+			out.write('#')
+		out.write('ANSI_SUPPORT = 1\n')
+		for line in OS_INFO[sys.platform]:
 			out.write("%s\n" % line)
 
 Command.declare('!os-info', OSInfo)

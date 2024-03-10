@@ -14,5 +14,12 @@ test-%: test-%.in
 		echo "failed!"; \
 	fi
 
+
 run-%: test-%.in
-	$(CONFIG) -i $< -o $(<:.in=.out) -q
+	$(CONFIG) -i $< -o $(<:.in=.out)
+
+
+run-%: run-%.in
+	$(CONFIG) -i $< -o $(<:.in=.out)
+	cat $(<:.in=.out)
+
