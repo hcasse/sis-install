@@ -122,11 +122,12 @@ In these filters, the input is considered as a path.
 * `dirname` - return all except the rightmost component.
 * `exists` - test if the input is a path to an existing element of the file system.
 * `expanduser` - replace ~_user_ by its home path.
-* `normcase` - normalize the case according to the OS.
-* `normpath` - normalize the path separators according to the OS.
 * `isdir` - test if the input is a path to a directory.
 * `isfile` - test if the input is a path to a plain file.
 * `islink` - test if the input is a path to a link file.
+* `mkdir` - make a directory with the input and return it.
+* `normcase` - normalize the case according to the OS.
+* `normpath` - normalize the path separators according to the OS.
 
 ### Command Filters
 

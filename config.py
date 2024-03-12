@@ -456,6 +456,29 @@ class Echo(Pipe):
 Pipe.declare("echo", Echo)
 
 
+class MkDirPipe(Pipe):
+
+	def __init__(self, args):
+		if args != []:
+			raise ParseException('mkdir does not take any argument!')
+
+	def process(self, input, env):
+		try:
+			os.makedirs(input, exist_ok = True)
+			return input
+		except OSError as e:
+			if self.ignores_failure():
+				return input
+			else:
+				self.msg = str(e)
+				return None
+
+	def error(self):
+		return self.msg
+
+Pipe.declare('mkdir', MkDirPipe)
+
+
 def from_fun(name, f, n = 0):
 	"""Build a pipe from a Python function f. n is the number of parameters after the first one. The parameters passed to f is the input of the pipe followed by arguments in the pipe invocation."""
 	class FromFun(Pipe):

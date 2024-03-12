@@ -1,1 +1,2 @@
 !mkdir ok/ko
+XXX = ok/ko | mkdir

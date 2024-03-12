@@ -6,10 +6,11 @@ Commands:
 [ ] !shell
 [x] - to accept failure
 [x] @ phony command
+[ ] % prefixed variable are temporary not output to script
 
 Pipes:
 [ ] add ifdef filter
-[ ] !mkdir
+[x] mkdir
 
 Sources:
 [x] add !read source
