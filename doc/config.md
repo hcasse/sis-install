@@ -37,14 +37,17 @@ The lines may have the following formats:
 * `!command arguments!` -- invoke the given command with the given arguments.
 * `IDENTIFER:TYPE = EXPRESSION  #  comment` -- add a definition the given _identifier_ and the given _expression_. The expression is evaluated and the definition is written back to the output with the component.
 
-Comments alone or at the end of a definition are very important as `command.mk` file supposed to be fixed by the user. Therefore, they are copied in the output.
+Comments alone or at the end of a definition are very important as `command.mk` file supposed to be fixed by the user. Therefore, they are copied to the output.
 
 _Identifier_ is any list of symbols not containing spaces, `:`, `=` or `#`. In addition, they can not start with `!`.
 
 _Type_ is optional and will be used to help editing or better outputting the result of the expressions. Current _types_ encompasses `bool`, `int`, `str` and `path`. Currently, the main processing of types if for `bool`: the definition is commented if its value is false.
 
+Definition and command lines can be prefixed by tywo symbols:
+* `-` -- definition or command failure does not stop the script evaluation.
+* `@` -- output from the definition or the command is discarded. 
 
-The _expression_ can have two main form:
+The _expression_ can have two main forms:
 * a _checked expression_ producing a string,
 * a `||` separated list of _checked expressions_ : the _check expressions_ are tested in turn until producing a value.
 
@@ -152,6 +155,7 @@ In place of definitions and comments, `!`-prefixed are also supported:
 * `!gen` _INPUT_ _OUTPUT_ - generate _OUTPUT_ file from _INPUT_ file that may contain `$`-prefixed variables with the definitions produced in `config.mk`.
 * `!import` _PATH_ - import a Python script used to add new pipes, sources and commands. The Python script has just to define classes for these action and add the `declare` class function to make these action available.
 * `!include` _PATH_ - include another script in the current script.
+* `!mkdir` _PATH_ - creates one or several levels of directorues if needed.
 * `!os-info` - generate a list of definitions providing information about OS and providing portability definitions (see below for the provided definitions).
 
 

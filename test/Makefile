@@ -21,5 +21,6 @@ run-%: test-%.in
 
 run-%: run-%.in
 	$(CONFIG) -i $< -o $(<:.in=.out)
-	cat $(<:.in=.out)
+	@echo "\n$*.out:"
+	@cat $(<:.in=.out)
 

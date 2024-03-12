@@ -17,27 +17,27 @@ STDERR = None
 QUIET = False
 LOGGING = False
 
+COMMON_INFO = [
+	"IS_UNIX = 1",
+	"EXEC ="
+]
 OS_INFO = {
 	"linux": [
 		"OS = linux",
 		"IS_LINUX = 1",
-		"IS_UNIX = 1",
-		"EXEC =",
 		"LIBDYN_SUFF = .so",
 		"LIBDYN_PREF = lib",
 		"LIB_SUFF = .a",
 		"LIB_PREF = lib"
-	],
+	] + COMMON_INFO,
 	"darwin": [
 		"OS = darwin",
 		"IS_DARWIN = 1",
-		"IS_UNIX = 1",
-		"EXEC =",
 		"LIBDYN_SUFF = .dynlib",
 		"LIBDYN_PREF =",
 		"LIB_SUFF = .a",
 		"LIB_PREF = lib"
-	],
+	] + COMMON_INFO,
 	"windows": [
 		"OS = windows",
 		"IS_WINDOWS = 1",
@@ -79,9 +79,7 @@ def info(message):
 	if not QUIET:
 		if ANSI_SUPPORT:
 			sys.stdout.write(INFO_ESC + "INFO: " + PLAIN_ESC)
-		else:
-			sys.stdout.write("INFO: ")
-			sys.stdout.write("%s\n" % message)
+		sys.stdout.write("%s\n" % message)
 	if LOGGING:
 		STDOUT.write("INFO: %s\n" % message)
 		STDOUT.flush()
@@ -134,12 +132,23 @@ class ParseException(ConfigException):
 		ConfigException.__init__(self, msg)
 
 
+class ActionConfig:
+	"""Configuration for actions. Contains 2 members:
+	* phony - True if command is prefixed by '@' to not display command output,
+	* ignore - True if command is prefixed by '-' to ignore failure."""
+
+	def __init__(self):
+		self.phony = False
+		self.ignore = False
+
+
 class Action:
 	"""Base class of Source, Pipe and Command. Provide support for source file:line information for error display."""
 
 	def __init__(self):
 		self.source = None
 		self.line = None
+		self.config = None
 
 	def set_source(self, file, line):
 		self.source = (file, line)
@@ -157,6 +166,18 @@ class Action:
 		if message == None:
 			message = self.error()
 		fatal(message, self.get_source())
+
+	def is_phony(self):
+		"""Test if the command is phony."""
+		return self.config.phony if self.config is not None else False
+
+	def ignores_failure(self):
+		"""Test if the command has to ignore failure."""
+		return self.config.ignore if self.config is not None else False
+
+	def set_config(self, config):
+		"""Set the command configuration."""
+		self.config = config
 
 
 ###### Sources ######
@@ -278,6 +299,10 @@ class Alt(Source):
 		return "all alternatives failed:\n* %s\n" \
 			% "\n* ".join([alt.error() for alt in self.alts])
 
+	def set_config(self, config):
+		Source.set_config(self, config)
+		for alt in alts:
+			alt.set_config(config)
 
 class Chain(Source):
 
@@ -299,6 +324,10 @@ class Chain(Source):
 	def error(self):
 		return self.failed.error()
 
+	def set_config(self, config):
+		Source.set_config(self, config)
+		self.source.set_config(config)
+		self.pipeline.set_config(config)
 
 class Check(Source):
 
@@ -317,6 +346,10 @@ class Check(Source):
 	def error(self):
 		return self.failed.error() 
 
+	def set_config(self, config):
+		Source.set_config(self, config)
+		self.source.set_config(config)
+		self.pipes.set_config(config)
 
 class Read(Source):
 
@@ -479,15 +512,17 @@ class Pipeline(Pipe):
 	def error(self):
 		return self.failed.error()
 
+	def set_config(self, config):
+		Pipe.set_config(self, config)
+		for pipe in self.pipes:
+			pipe.set_config(config)
+
 
 ###### Commands ######
 
 class Command(Action):
 	"""A command is an evaluation element at the top-level of the script. It is evaluated and, if there is no failure, is used to output Makefile definitions. In case of error, the constructor can raise ParException."""
 	MAP = { }
-
-	def __init__(self):
-		Action.__init__(self)
 
 	def process(self, env):
 		"""Evaluate the command in the given environment. If the command fails, it has to call fatal() function."""
@@ -498,7 +533,7 @@ class Command(Action):
 		pass
 
 	def declare(name, command):
-		"""Declare a new command (that must be prefixed by !). Command is the constructor to the actual class of the command. This constructor will be called as argument the remaining of the line as argument."""
+		"""Declare a new command (that must be prefixed by !). Command is the constructor to the actual class of the command. This constructor takes one parameter args: the rest of the line after the command."""
 		Command.MAP[name] = command
 
 	def make(name, args):
@@ -524,7 +559,10 @@ class Definition(Command):
 		except KeyError:
 			self.value = self.action.eval(env)
 			if self.value is None:
-				self.fatal()
+				if self.ignores_failure():
+					self.value = ""
+				else:
+					self.fatal()
 			env[self.name] = self.value
 
 	def output(self, out):
@@ -607,8 +645,11 @@ class Gen(Command):
 				with open(in_path) as input:
 					for l in input.readlines():
 						out.write(eval_arg(l, env))
-		except FileNotFoundError as e:
-			self.fatal(str(e))
+		except OSError as e:
+			if self.ignores_failure():
+				error('generating "%s": %s' % (out_path, str(e)))
+			else:
+				self.fatal(str(e))
 
 Command.declare('!gen', Gen)
 
@@ -645,6 +686,27 @@ class Import(Command):
 
 Command.declare('!import', Import)
 
+
+class MkDir(Command):
+
+	def __init__(self, args):
+		args = args.strip().split()
+		if len(args) != 1:
+			raise ParseException('!mkdir requires a unique argument!')
+		self.path = args[0].strip()
+
+	def process(self, env):
+		path = eval_arg(self.path, env)
+		try:
+			os.makedirs(path, exist_ok=True)
+		except OSError as e:
+			if self.ignores_failure():
+				return
+			else:
+				self.fatal(str(e))
+
+Command.declare('!mkdir', MkDir)
+	
 
 ###### Script parsing ######
 
@@ -758,25 +820,39 @@ def parse_script(path):
 			pref = ''
 			if l.startswith("#"):
 				command = Comment(l[1:])
-			elif l.startswith('!'):
-				match = SPACE_RE.search(l)
-				if match is None:
-					command = l
-					args = ""
-				else:
-					command = l[:match.start()]
-					args = l[match.end():]
-				try:
-					command = Command.make(command, args)
-				except ParseException as e:
-					fatal(str(e), (path, num))
 			else:
-				name, type, action, comment = parse_var((path, num), l)
-				try:
-					action = parse_alts((path, num), action)
-				except ParseException as e:
-					fatal(str(e), source=num)
-				command = Definition(name, type, action, comment)
+
+				config = ActionConfig()
+				while True:
+					if l.startswith('@'):
+						config.phony = True
+					elif l.startswith('-'):
+						config.ignore = True
+					else:
+						break
+					l = l[1:]
+				
+				if l.startswith('!'):
+					match = SPACE_RE.search(l)
+					if match is None:
+						command = l
+						args = ""
+					else:
+						command = l[:match.start()]
+						args = l[match.end():]
+					try:
+						command = Command.make(command, args)
+					except ParseException as e:
+						fatal(str(e), (path, num))
+				else:
+					name, type, action, comment = parse_var((path, num), l)
+					try:
+						action = parse_alts((path, num), action)
+					except ParseException as e:
+						fatal(str(e), source=num)
+					command = Definition(name, type, action, comment)
+
+				command.set_config(config)
 				
 			commands.append(command)
 			command.set_source(path, num)
