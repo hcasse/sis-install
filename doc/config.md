@@ -143,6 +143,13 @@ These filters uses the input to apply a command on it. If successul, the input i
 
 Sources produces a string, often a path, that are assigned to variables, possibly after passing by filters.
 
+* `!clib` _LIB_ _ARGS_ - look for C library using _ARGS_ and basically returns 0 or 1.
+  * If no other option is given, use the standard package manager.
+  * `root`=_PATH_ look for library in the given directory for library.
+  * `header`=_PATH_ check with the given path.
+  * `command=`=_PATH_ uses _PATH_ command to get flags and libraries.
+  * `cflags` produces C flags.
+  * `libs` produces C link options.
 * `!git` _URL_ - clone with **Git** the repository corresponding to _URL_ and return the path to the repository.
 * `!lookup` _ARGS_ - look for a file item matching one of the _ARGS_ relatively to the current directory and return it.
 * `!which` _ARGS_ - look for an execuble matching one of the _ARGS_ in the system list of executable paths and return it.

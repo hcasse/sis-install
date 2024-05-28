@@ -18,36 +18,42 @@ QUIET = False
 LOGGING = False
 
 COMMON_INFO = [
-	"IS_UNIX = 1",
-	"EXEC ="
+	"IS_UNIX": 1,
+	"EXEC": ""
 ]
 OS_INFO = {
-	"linux": [
-		"OS = linux",
-		"IS_LINUX = 1",
-		"LIBDYN_SUFF = .so",
-		"LIBDYN_PREF = lib",
-		"LIB_SUFF = .a",
-		"LIB_PREF = lib"
-	] + COMMON_INFO,
+	"linux": {
+		"OS": linux,
+		"IS_LINUX": 1,
+		"LIBDYN_SUFF": ".so",
+		"LIBDYN_PREF": "lib",
+		"LIB_SUFF": ".a",
+		"LIB_PREF": "lib"
+	] | COMMON_INFO,
 	"darwin": [
-		"OS = darwin",
-		"IS_DARWIN = 1",
-		"LIBDYN_SUFF = .dynlib",
-		"LIBDYN_PREF =",
-		"LIB_SUFF = .a",
-		"LIB_PREF = lib"
-	] + COMMON_INFO,
+		"OS": "darwin",
+		"IS_DARWIN": "1",
+		"LIBDYN_SUFF": ".dynlib",
+		"LIBDYN_PREF": "",
+		"LIB_SUFF": ".a",
+		"LIB_PREF": "lib"
+	] | COMMON_INFO,
 	"windows": [
-		"OS = windows",
-		"IS_WINDOWS = 1",
-		"EXEC = .exe",
-		"LIBDYN_SUFF = .dll",
-		"LIBDYN_PREF = ",
-		"LIB_SUFF = .lib",
-		"LIB_PREF = "
+		"OS": "windows",
+		"IS_WINDOWS": 1,
+		"EXEC": ".exe",
+		"LIBDYN_SUFF": ".dll",
+		"LIBDYN_PREF": "",
+		"LIB_SUFF": ".lib",
+		"LIB_PREF": ""
 	]
 }
+
+def get_os():
+	try:
+		return OS_INFO[sys.platform]
+	except KeyError:
+		fatal('platform "%s" unsupported!' % sys.platform)
 
 SPACE_RE = re.compile('\s')
 
@@ -91,6 +97,27 @@ def execute(cmd, dir = None):
 	cp = subprocess.run(cmd, shell=True, cwd = dir, stdout=STDOUT, stderr=STDERR)
 	return cp.returncode == 0
 
+def eval_var(text, env):
+	print("DEBUG: eval_var(", text, env, ")")
+	args = text.split('|')
+	try:
+		value = env[args[0]]
+	except KeyError:
+		value = ""
+	if len(args) == 1:
+		return value
+	else:
+		print("DEBUG: pipe!")
+		for arg in args[1:]:
+			pipe = parse_pipe(arg)
+			old = value
+			value = pipe.process(value, env)
+			print("DEBUG:", arg, "(", old, ") =", value)
+			if value == None:
+				value = ""
+				break
+		return value
+
 VAR_RE = re.compile('\$\$|\$\(([^\)]+)\)|\$(\S+)')
 
 def eval_arg(text, env):
@@ -103,10 +130,7 @@ def eval_arg(text, env):
 		if found == None:
 			res += '$'
 		else:
-			try:
-				res += env[found]
-			except KeyError:
-				pass
+			res += eval_var(found, env)
 		text = text[match.end():]  
 		match = VAR_RE.search(text)
 	return res + text

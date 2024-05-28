@@ -55,7 +55,7 @@ NULL_VERS = "0.0"
 SRCE_VERS = "source"
 SIS_EXTEND_TAG = "sis-extend"
 SIS_INSTALL_TAG = "sis-install"
-SIS_VERSION = "1.1"
+SIS_VERSION = "1.2"
 
 KNOWN_CONFIGS = {
 	("Linux",	"i686", 	32)	: "linux-x86",
@@ -155,6 +155,10 @@ class Monitor:
 		self.allocated_log_file = False
 		self.var_re = re.compile("((^|[^$])\$\(([a-zA-Z0-9_]+)\))|(\$\$)")
 		self.update = False
+		self.dirs = []			# stack of CWD
+		self.dump = None		# dump commands to this file
+		self.boot = False		# generate boot script
+		self.phony = False		# if phony, no message is displayed
 
 	def get(self, name, default = None):
 		try:
@@ -182,6 +186,8 @@ class Monitor:
 
 	def ask_yes_no(self, msg):
 		"""Ask the question to the user and parse answer."""
+		if self.phony:
+			return False
 		self.out.write(msg + " [yes/NO]: ")
 		self.out.flush()
 		try:
@@ -192,17 +198,20 @@ class Monitor:
 			return False
 
 	def say(self, msg):
-		self.out.write("%s\n" % msg)
+		if not self.phony:
+			self.out.write("%s\n" % msg)
 	
 	def write_color(self, color, head, text):
 		self.err.write(BOLD + color + head + ": " + NORMAL + text + "\n")
 	
 	def warn(self, msg):
-		self.write_color(GREEN, "WARNING", msg)
+		if not self.phony:
+			self.write_color(GREEN, "WARNING", msg)
 	
 	def error(self, msg):
-		self.write_color(RED, "ERROR", msg)
-		self.errors = self.errors + 1
+		if not self.phony:
+			self.write_color(RED, "ERROR", msg)
+			self.errors = self.errors + 1
 
 	def fatal(self, msg):
 		self.write_color(RED, "ERROR", msg)
@@ -211,35 +220,45 @@ class Monitor:
 		exit(1)
 	
 	def check(self, msg):
-		self.out.write("%s ... " % msg)
-		self.out.flush()
+		if not self.phony:
+			self.out.write("%s ... " % msg)
+			self.out.flush()
 	
 	def succeed(self):
-		self.out.write(GREEN + "[OK]\n" + NORMAL)
+		if not self.phony:
+			self.out.write(GREEN + "[OK]\n" + NORMAL)
 	
 	def fail(self):
-		self.out.write(RED + "[FAILED]\n" + NORMAL)
+		if not self.phony:
+			self.out.write(RED + "[FAILED]\n" + NORMAL)
 
 	def comment(self, msg):
-		if self.verbose:
+		if not self.phony and  self.verbose:
 			self.err.write("# %s\n" % msg)
 	
 	def execute(self, cmd, out = None, err = None, log = False):
-		if not out:
-			if log:
-				out = self.get_log_file()
-			else:
-				out = self.out
-		if not err:
-			if log:
-				err = self.get_log_file()
-			else:
-				err = self.err
-		return subprocess.call(cmd, stdout=out, stderr=err, shell=True)
+		if self.dump != None:
+			self.dump.write(cmd + "\n")
+		if not self.dry:
+			if not out:
+				if log:
+					out = self.get_log_file()
+				else:
+					out = self.out
+			if not err:
+				if log:
+					err = self.get_log_file()
+				else:
+					err = self.err
+			return subprocess.call(cmd, stdout=out, stderr=err, shell=True)
 
 	def result_of(self, cmd, err = None, log = False):
 		"""Execute the given command and return result of it if it doesn't
 		fail. Return None else."""
+		if self.dump != None:
+			self.dump.write(cmd + "\n")
+		if self.dry:
+			return ""
 		if not err:
 			if log:
 				err = self.get_log_file()
@@ -305,6 +324,14 @@ class Monitor:
 			shutil.rmtree(self.build_dir)
 		if self.errors == 0 and self.allocated_log_file:
 			os.remove(self.log_path)
+
+	def push_dir(self, path):
+		self.dirs.append(os.getcwd())
+		os.chdir(path)
+
+	def pop_dir(self):
+		path = self.dirs.pop()
+		os.chdir(path)
 
 
 # global variables
@@ -815,22 +842,20 @@ class MakeBuilder(Builder):
 	
 	def build(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
-		cur = os.getcwd()
-		os.chdir(path)
+		mon.push_dir(path)
 		cmd = "make %s" % mon.eval(self.flags)
 		mon.log("\nBuilding %s: %s\n" % (self.pack.name, cmd))
 		res = mon.execute(cmd, log = True)
-		os.chdir(path)
+		mon.pop_dir()
 		return res == 0
 
 	def install(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
-		cur = os.getcwd()
-		os.chdir(path)
+		mon.push_dir(path)
 		cmd = "make install %s" % mon.eval(self.flags)
 		mon.log("\nInstalling %s: %s\n" % (self.pack.name, cmd))
 		res = mon.execute(cmd, log = True)
-		os.chdir(path)
+		mon.pop_dir()
 		if res == 0:
 			return []
 		else:
@@ -854,25 +879,23 @@ class CMakeBuilder(Builder):
 	
 	def build(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
-		cur = os.getcwd()
-		os.chdir(path)
+		mon.push_dir(path)
 		cmd = "cmake . %s" % mon.eval(self.flags)
 		mon.log("\nSetting up %s: %s\n" % (self.pack.name, cmd))
 		res = mon.execute(cmd, log = True)
 		if res == 0:
 			mon.log("\nBuilding %s: make\n" % self.pack.name)
 			res = mon.execute("make", log = True)
-		os.chdir(cur)
+		mon.pop_dir()
 		return res == 0		
 		
 	def install(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
-		cur = os.getcwd()
-		os.chdir(path)
+		mon.push_dir(path)
 		cmd = "make install"
 		mon.log("\nInstalling %s: %s\n" % (self.pack.name, cmd))
 		res = mon.result_of(cmd, log = True)
-		os.chdir(cur)
+		mon.pop_dir()
 		if res == None:
 			return False
 		else:
@@ -901,15 +924,14 @@ class CommandBuilder(Builder):
 	def build(self, mon):
 		if self.build:
 			path = os.path.join(mon.get_build_dir(), self.pack.name)
-			cur = os.getcwd()
-			mon.log("cwd set to %s\n" % path)
-			os.chdir(path)
+			mon.push_dir(path)
 			mon.log("executing %s\n" % self.build_cmd)
 			res = mon.execute(self.build_cmd, None, None, True)
-			os.chdir(path)
+			mon.pop_dir()
 			return res == 0
 		else:
 			return True
+		
 
 	def gen_make(self, out, mon):
 		pref = "\tcd %s" % self.pack.name
@@ -1040,7 +1062,8 @@ class SourceVersion(Version):
 		"""Install a package from source."""
 
 		# download
-		self.download(mon)
+		if not mon.dry:
+			self.download(mon)
 
 		# build
 		if self.build:
@@ -1190,13 +1213,9 @@ def load_db(url, mon, installed = False):
 			mon.say(BLUE + BOLD + "INFO: " + NORMAL + message.text)
 		
 		# manage script version
-		installer = root.find("installer")
-		if installer != None:
-			version = installer.find("version")
-			installer_url = installer.find("url")
-			if version != None and Version(SIS_VERSION) < Version(version.text):
-				mon.update = True
-				mon.installer_url = str(installer_url.text)
+		version = root.find("version")
+		if version != None and Version(version) < Version(SIS_VERSION):
+			mon.update = True
 		
 		# parse the content
 		for p in root.findall("package"):
@@ -1281,12 +1300,11 @@ def load_db(url, mon, installed = False):
 						action = get_action(aelt, mon)
 						assert action != None
 						pack.uninstall.append(action)
-
-		return None
+			
 	except (AssertionError, ET.ParseError):
-		return "bad DB. Stopping."
+		mon.fatal("bad DB. Stopping.")
 	except urllib.error.URLError as e:
-		return str(e)
+		mon.fatal(str(e))
 
 
 def save_site(path, ipack, mon, uninstall = None, remove = False):
@@ -1511,15 +1529,16 @@ def install_packs(vs, mon):
 	to_install = close_packs(vs, mon)
 
 	# check all deps first
-	failed = 0
-	for v in to_install:
-		for dep in v.deps:
-			if not dep.tested:
-				dep.do_test(mon)
-				if not dep.succeeded:
-					failed = failed + 1
-	if failed != 0:
-		mon.fatal("%d dependency(ies) failed: aborting." % failed)
+	if not mon.dry:
+		failed = 0
+		for v in to_install:
+			for dep in v.deps:
+				if not dep.tested:
+					dep.do_test(mon)
+					if not dep.succeeded:
+						failed = failed + 1
+		if failed != 0:
+			mon.fatal("%d dependency(ies) failed: aborting." % failed)
 
 	# perform the build
 	done = []
@@ -1535,7 +1554,7 @@ def install_packs(vs, mon):
 		v = sorted(filter(req_ready, to_install), key=lambda v: v.pack.get_rank())[0]
 		del to_install[v]
 		if mon.dry:
-			mon.say("installing %s" % v.pack.name)
+			mon.say("# installing %s" % v.pack.name)
 		else:
 			try:
 				v.install(mon)
@@ -1694,8 +1713,8 @@ os.system(" ".join(["%s %s --default"] + sys.argv[1:]))
 
 def update_installer(mon):
 	"""Update the installer version."""
-	new_path = os.path.join(os.path.dirname(__file__), ".new.py")
-	old_path = os.path.join(os.path.dirname(__file__), ".old.py")
+	new_path = os.join(os.path.dirname(__file__), ".new.py")
+	old_path = os.join(os.path.dirname(__file__), ".old.py")
 	install_path = __file__
 
 	# download the new version as .new.py
@@ -1797,14 +1816,40 @@ MONITOR.dry = args.dry
 MONITOR.force = args.force
 MONITOR.comment("build directory = %s" % MONITOR.build_dir)
 
+# prepare dry mode
+if args.dry:
+	MONITOR.dry = args.dry
+	MONITOR.dump = sys.stdout
+packages = args.packages
+
 # source building
 if args.source:
 	res = load_db(DB_URL + "/index.xml", MONITOR)
 	if res is not None:
 		MONITOR.fatal("cannot load remote db: %s" % res)
 	resolve_reqs(MONITOR)
-	install_sources(get_versions(args.packages, MONITOR), MONITOR, args.makefile)
+	packages = args.packages
+	if not packages:
+		packages = DEFAULT
+	install_sources(get_versions(packages, MONITOR), MONITOR, args.makefile)
 	sys.exit(0)
+
+# root mode
+if not MONITOR.dry:
+	if args.root != None:	
+		install_root(MONITOR, args.root, args.packages, args.only_init)
+	elif not INSTALLED:
+		install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
+		if not MONITOR.ask_yes_no("The packages will be installed in %s: " % install_dir):
+			MONITOR.fatal("Run this script first with -R option to select a different directory.\n")
+		packs = args.packages
+		if not packs:
+			packs = DEFAULT
+		install_root(MONITOR, DEFAULT_PATH, packs)
+	else:
+		MONITOR.top_dir = args.top
+		if not MONITOR.top_dir:
+			MONITOR.top_dir = os.path.join(os.path.dirname(__file__), DB_TOP)
 
 # find the top directory
 if args.root != None:	
@@ -1830,6 +1875,7 @@ MONITOR.site_path = os.path.join(MONITOR.top_dir, DB_CONF)
 # load the configuration
 pack = None
 if os.path.exists(MONITOR.site_path):
+	MONITOR.comment("loading local configuration from %s." % MONITOR.site_path)
 	load_db("file:" + MONITOR.site_path, MONITOR, True)
 res = load_db(DB_URL + "/index.xml", MONITOR)
 if res is not None:
@@ -1842,16 +1888,17 @@ if conf != None:
 resolve_reqs(MONITOR)
 
 # warning about thew new version
-if args.update_installer:
-	if not MONITOR.update:
-		MONITOR.error("no new installer version to update")
-		sys.exit(1)
-	else:
-		update_installer(MONITOR)
-		pass
-		sys.exit(0)
-elif MONITOR.update:
-	MONITOR.warn("a new version of installer is available! Install it with option -U!")
+if not MONITOR.dry:
+	if args.update_installer:
+		if not MONITOR.update:
+			MONITOR.error("no new installer version to update")
+			sys.exit(1)
+		else:
+			update_installer(MONITOR)
+			pass
+			sys.exit(0)
+	elif MONITOR.update:
+		MONITOR.warn("a new version of installer is available! Install with option -U")
 
 # perform actions
 if args.list:
@@ -1861,6 +1908,8 @@ elif args.info:
 		info_pack(pack, MONITOR)
 elif args.uninstall:
 	uninstall_packs(get_packs(args.packages, MONITOR), MONITOR)
+elif args.source:
+	install_sources(get_versions(args.packages, MONITOR), MONITOR)
 elif not args.packages and args.default:
 	install_packs(get_versions(DEFAULT, MONITOR), MONITOR)
 else:
