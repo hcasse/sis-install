@@ -4,7 +4,7 @@
 #
 # This file is part of SIS
 # Copyright (c) 2017, Hugues Casse <casse@irit.fr>
-# 
+#
 # SIS is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 2 of the License, or
@@ -16,7 +16,7 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with SIS; if not, write to the Free Software 
+# along with SIS; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 
@@ -57,14 +57,16 @@ SIS_EXTEND_TAG = "sis-extend"
 SIS_INSTALL_TAG = "sis-install"
 SIS_VERSION = "1.2"
 
+
 KNOWN_CONFIGS = {
 	("Linux",	"i686", 	32)	: "linux-x86",
 	("Linux",	"i686",		64)	: "linux-x86_64",
-	("Linux",	"x86_64",	32)	: "linux-x86",	
+	("Linux",	"x86_64",	32)	: "linux-x86",
 	("Linux",	"x86_64",	64)	: "linux-x86_64",
 	("Windows",	None, 		32)	: "win",
 	("Windows", None, 		64) : "win64",
-	("Darwin",	"x86_64", 	64) : "darwin-x86_64"
+	("Darwin",	"x86_64", 	64) : "darwin-x86_64",
+	("Darwin",	"arm64", 	64) : "darwin-arm64"
 }
 
 DYNLIB_EXT = {
@@ -72,8 +74,10 @@ DYNLIB_EXT = {
 	"linux-x86_64":		".so",
 	"win":				".dll",
 	"win64":			".dll",
-	"darwin-x86_64":	".dylib"
+	"darwin-x86_64":	".dylib",
+	"darwin-arm64":		".dylib"
 }
+
 
 NORMAL = "\033[0m"
 BOLD = "\033[1m"
@@ -136,7 +140,7 @@ def download(addr, mon, to = None):
 
 
 class Monitor:
-	
+
 	def __init__(self):
 		self.env = { }
 		self.out = sys.stdout
@@ -175,7 +179,7 @@ class Monitor:
 			os = platform.system()
 			mach = platform.machine()
 			if sys.maxsize > 2**32:
-				size = 64 
+				size = 64
 			else:
 				size = 32
 			try:
@@ -200,14 +204,14 @@ class Monitor:
 	def say(self, msg):
 		if not self.phony:
 			self.out.write("%s\n" % msg)
-	
+
 	def write_color(self, color, head, text):
 		self.err.write(BOLD + color + head + ": " + NORMAL + text + "\n")
-	
+
 	def warn(self, msg):
 		if not self.phony:
 			self.write_color(GREEN, "WARNING", msg)
-	
+
 	def error(self, msg):
 		if not self.phony:
 			self.write_color(RED, "ERROR", msg)
@@ -218,16 +222,16 @@ class Monitor:
 		self.errors = self.errors + 1
 		self.cleanup()
 		exit(1)
-	
+
 	def check(self, msg):
 		if not self.phony:
 			self.out.write("%s ... " % msg)
 			self.out.flush()
-	
+
 	def succeed(self):
 		if not self.phony:
 			self.out.write(GREEN + "[OK]\n" + NORMAL)
-	
+
 	def fail(self):
 		if not self.phony:
 			self.out.write(RED + "[FAILED]\n" + NORMAL)
@@ -235,7 +239,7 @@ class Monitor:
 	def comment(self, msg):
 		if not self.phony and  self.verbose:
 			self.err.write("# %s\n" % msg)
-	
+
 	def execute(self, cmd, out = None, err = None, log = False):
 		if self.dump != None:
 			self.dump.write(cmd + "\n")
@@ -282,7 +286,7 @@ class Monitor:
 	def log(self, msg):
 		self.get_log_file().write(msg)
 		self.get_log_file().flush()
-	
+
 	def eval(self, str):
 		"""Replace the $(...) variables with the values of monitor variables
 		and $$ by single $."""
@@ -298,7 +302,7 @@ class Monitor:
 			p = s + len(rep)
 			m = self.var_re.search(str, p)
 		return str
-	
+
 	def get_build_dir(self):
 		"""Obtain a building directory."""
 		if self.build_dir == None:
@@ -351,13 +355,13 @@ class Action:
 		"""Called to perform the action.
 		Return True for success, False else."""
 		pass
-	
+
 	def parse(self, elt, mon):
 		"""Called to let the action to configure itself.
 		elt is the element defining the action.
 		May raise IOError."""
 		pass
-	
+
 	def save(self, elt):
 		"""Called to configure the given element with the information
 		of the action. elt already contains the identifier of the action."""
@@ -370,11 +374,11 @@ class Action:
 
 class Remove(Action):
 	"""Action removing a file."""
-	
+
 	def __init__(self, path = None):
 		Action.__init__(self, "remove")
 		self.path = path
-	
+
 	def perform(self, mon):
 		try:
 			os.remove(self.path)
@@ -382,25 +386,25 @@ class Remove(Action):
 		except OSError as e:
 			mon.error("cannot remove %s: %s" % (self.path, e))
 			return False
-	
+
 	def parse(self, elt, mon):
 		self.path = elt.get("path", None)
 		if self.path == None:
 			raise IOError("path attribute is required in remove!")
-	
+
 	def save(self, elt):
 		elt.set("path", self.path)
 
 
 class Install(Action):
 	"""Represents an installation action."""
-	
+
 	def __init__(self, path = None, to = None):
 		Action.__init__(self, "install")
 		self.path = path
 		self.to = to if to != None else path
-	
-	def perform(self, mon):	
+
+	def perform(self, mon):
 		spath = self.path
 		tpath = os.path.join(mon.top_dir, self.to)
 		mon.comment("copy %s to %s" % (spath, tpath))
@@ -411,7 +415,7 @@ class Install(Action):
 			shutil.copy2(spath, tpath)
 		except os.error as e:
 			raise IOError("%s at %s install" % (e, self.path))
-		
+
 	def parse(self, elt, mon):
 		to = elt.get("to", None)
 		self.path = elt.get("dynlib", None)
@@ -430,7 +434,7 @@ class Install(Action):
 	def save(self, elt):
 		elt.set("file", self.path)
 		elt.set("to", self.to)
-	
+
 	def reverse(self):
 		return Remove(self.to)
 
@@ -463,22 +467,22 @@ def save_action(parent, action):
 class Dep:
 	"""This class enables the test of dependencies that are out of
 	the repository like special tools, libraries, etc."""
-	
+
 	def __init__(self, name):
 		assert name not in DEPS
 		self.name = name
 		DEPS[name] = self
 		self.tested = False
 		self.succeeded = False
-	
+
 	def message(self):
 		"""Get the message explaining the test."""
 		return self.name
-	
+
 	def help(self):
 		"""In case of failure, display the given message."""
 		return ""
-	
+
 	def do_test(self, mon):
 		"""This function must be called to perform the test."""
 		mon.check("testing %s" % self.message())
@@ -487,21 +491,21 @@ class Dep:
 			mon.succeed()
 		else:
 			mon.fail()
-	
+
 	def test(self, mon):
 		"""This function must be overload to customize the test.
 		If it succeeds, it must call succeed() function, else
 		the fail() function."""
 		self.fail()
-	
+
 	def succeed(self):
 		self.tested = True
 		self.succeeded = True
-	
+
 	def fail(self):
 		self.tested = True
 		self.succeeded = False
-	
+
 	def added_deps(self):
 		"""Called to get additional dependencies."""
 		return []
@@ -510,7 +514,7 @@ class CommandDep(Dep):
 	"""Look for a command with possible different names.
 	The XML element must have type="command" and attribute
 	commands="..." with a "," separated list of commands to test."""
-	
+
 	def __init__(self, name, elt, commands = ""):
 		Dep.__init__(self, name)
 		if elt != None:
@@ -520,15 +524,15 @@ class CommandDep(Dep):
 		assert self.commands != None
 		self.commands = self.commands.split(",")
 		self.found = None
-	
+
 	def message(self):
 		return "command %s" % self.name
-	
+
 	def help(self):
 		return "%s is satisfied if one of the following program is available: %s" % (self.name, self.commands.join(", "))
-	
+
 	def test(self, mon):
-		
+
 		# build paths and exts
 		paths = []
 		for path in os.getenv("PATH", "").split(os.pathsep):
@@ -556,23 +560,23 @@ class LibraryDep(Dep):
 	A "lang" attribute equal to "c" or "c++" may also be passed.
 	Additionnaly, "cflags" and "ldflags" attributes provides commands
 	to get the corresponding flags."""
-	
+
 	def __init__(self, name, elt, header = "", lang = "c", cflags = None, ldflags = None):
 		Dep.__init__(self, name)
 		if elt != None:
 			self.header = elt.get("header", None)
 			self.lang = elt.get("lang", "c")
 			self.cflags = elt.get("cflags", None)
-			self.ldflags = elt.get("ldflags", None) 
+			self.ldflags = elt.get("ldflags", None)
 		else:
 			self.header = header
 			self.lang = lang
 			self.cflags = cflags
 			self.ldflags = ldflags
-	
+
 	def message(self):
 		return "library  %s" % self.name
-	
+
 	def test(self, mon):
 		cflags = ""
 		ldflags = ""
@@ -588,7 +592,7 @@ class LibraryDep(Dep):
 			ldflags = mon.result_of(self.ldflags, None, True)
 			if ldflags == None:
 				self.fail()
-				return			
+				return
 			else:
 				ldflags = ldflags.strip()
 				mon.log("ldflags = %s\n" % ldflags)
@@ -611,7 +615,7 @@ class LibraryDep(Dep):
 
 	def suffix(self):
 		return ".cpp" if self.lang == "c++" else ".c"
-	
+
 	def dep(self):
 		return CPP_DEP if self.lang == "c++" else C_DEP
 
@@ -677,7 +681,7 @@ def default_unpack(cmd, file, mon):
 
 class Unpacker:
 	"""Unpacker support."""
-	
+
 	def __init__(self, deps, cmd):
 		self.deps = deps
 		self.cmd = cmd
@@ -710,12 +714,12 @@ def unpack_deps(file):
 		return None
 
 
-# Donwloader classes	
+# Donwloader classes
 class Downloader:
-	
+
 	def __init__(self, pack):
 		self.pack = pack
-	
+
 	def download(self, mon):
 		"""Called to perform the download."""
 		return False
@@ -725,15 +729,15 @@ class Downloader:
 		pass
 
 class HgDownloader(Downloader):
-	
+
 	def __init__(self, pack, elt):
 		Downloader.__init__(self, pack)
 		self.address = elt.get("address", None)
 		assert self.address != None
-	
+
 	def add_deps(self, deps):
-		deps.append(HG_DEP)		
-	
+		deps.append(HG_DEP)
+
 	def download(self, mon):
 		target = os.path.join(mon.get_build_dir(), self.pack.name)
 		if os.path.exists(target):
@@ -745,16 +749,16 @@ class HgDownloader(Downloader):
 
 
 class GitDownloader(Downloader):
-	
+
 	def __init__(self, pack, elt):
 		Downloader.__init__(self, pack)
 		self.address = elt.get("address", None)
 		self.tag = elt.get("tag", None)
 		assert self.address != None
-	
+
 	def add_deps(self, deps):
-		deps.append(GIT_DEP)		
-	
+		deps.append(GIT_DEP)
+
 	def download(self, mon):
 		target = os.path.join(mon.get_build_dir(), self.pack.name)
 		if os.path.exists(target):
@@ -771,7 +775,7 @@ class GitDownloader(Downloader):
 class ArchiveDownloader(Downloader):
 	"""Downloader for an archive. Requires attribute address to get
 	the archive."""
-	
+
 	def __init__(self, pack, elt):
 		Downloader.__init__(self, pack)
 		self.address = elt.get("address", None)
@@ -781,15 +785,15 @@ class ArchiveDownloader(Downloader):
 		adeps = unpack_deps(os.path.basename(self.address))
 		if adeps:
 			deps.extend(adeps)
-	
+
 	def download(self, mon):
-		
+
 		# get the archive
 		try:
 			path = download(self.address, mon)
 		except IOError as e:
 			return False
-		
+
 		# extract it
 		dir = unpack(path, mon)
 		return True
@@ -808,7 +812,7 @@ def make_downloader(pack, elt):
 
 
 class Builder:
-	
+
 	def __init__(self, pack):
 		self.pack = pack
 
@@ -820,7 +824,7 @@ class Builder:
 	def build(self, mon):
 		"""Perform a the build. Return True for success, False else."""
 		return True
-	
+
 	def install(self, mon):
 		"""Perform the installation and return None for failure,
 		list of uninstall actions for success."""
@@ -832,14 +836,14 @@ class Builder:
 
 
 class MakeBuilder(Builder):
-	
+
 	def __init__(self, pack, elt):
 		Builder.__init__(self, pack)
 		self.flags = elt.get("flags", "")
-	
+
 	def add_deps(self, deps):
 		deps.append(MAKE_DEP)
-	
+
 	def build(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
 		mon.push_dir(path)
@@ -866,17 +870,17 @@ class MakeBuilder(Builder):
 		out.write("%s; make %s >> $(log)\n" % (pref, self.flags))
 		if not self.pack.tool:
 			out.write("%s; make install %s >> $(log)\n" % (pref, self.flags))
-		
+
 
 class CMakeBuilder(Builder):
-	
+
 	def __init__(self, pack, elt):
 		Builder.__init__(self, pack)
 		self.flags = elt.get("flags", "")
-	
+
 	def add_deps(self, deps):
 		deps.append(CMAKE_DEP)
-	
+
 	def build(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
 		mon.push_dir(path)
@@ -887,8 +891,8 @@ class CMakeBuilder(Builder):
 			mon.log("\nBuilding %s: make\n" % self.pack.name)
 			res = mon.execute("make", log = True)
 		mon.pop_dir()
-		return res == 0		
-		
+		return res == 0
+
 	def install(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
 		mon.push_dir(path)
@@ -912,15 +916,15 @@ class CMakeBuilder(Builder):
 		out.write("%s; make >> $(log)\n" % pref)
 		if not self.pack.tool:
 			out.write("%s; make install >> $(log)\n" % pref)
-		
+
 
 class CommandBuilder(Builder):
 	"""Builder based on a command call."""
-	
+
 	def __init__(self, pack, elt):
 		Builder.__init__(self, pack)
 		self.build_cmd = elt.get("build")
-	
+
 	def build(self, mon):
 		if self.build:
 			path = os.path.join(mon.get_build_dir(), self.pack.name)
@@ -931,12 +935,12 @@ class CommandBuilder(Builder):
 			return res == 0
 		else:
 			return True
-		
+
 
 	def gen_make(self, out, mon):
 		pref = "\tcd %s" % self.pack.name
 		out.write("%s; %s >> $(log)\n" % (pref, self.build_cmd))
-	
+
 BUILDERS = {
 	"make": MakeBuilder,
 	"cmake": CMakeBuilder,
@@ -953,11 +957,11 @@ def make_builder(pack, elt):
 
 # version management
 class Version:
-	
+
 	def __init__(self, version):
 		self.version = version
 		self.pack = None
-	
+
 	def install(self, mon):
 		"""Install the given module."""
 		pass
@@ -970,19 +974,19 @@ class Version:
 
 class BinaryVersion(Version):
 	"""Represents a binary package to download."""
-	
+
 	def __init__(self, version, file, size, checksum):
 		Version.__init__(self, version)
 		self.file = file
 		self.size = size
 		self.checksum = checksum
 		self.deps = []
-	
+
 	def install(self, mon):
 		"""Install a package by downloading it from a server."""
-	
+
 		try:
-			
+
 			# download the package
 			file = os.path.basename(self.file)
 			mon.comment("source URL: %s" % self.file)
@@ -990,7 +994,7 @@ class BinaryVersion(Version):
 			path = download(self.file, mon)
 			mon.comment("local file: %s" % path)
 			mon.succeed()
-		
+
 			# unpack it
 			mon.check("unpacking %s" % file)
 			dpath = unpack(path, mon)
@@ -1008,7 +1012,7 @@ class BinaryVersion(Version):
 					if action == None:
 						raise IOError("bad action")
 					actions.append(action)
-			
+
 			# install it
 			mon.check("installing %s" % file)
 			uninstall = []
@@ -1019,13 +1023,13 @@ class BinaryVersion(Version):
 				raction = action.reverse()
 				if raction != None:
 					uninstall.append(raction)
-		
+
 			# record the installation
 			mon.succeed()
 			self.pack.installed = True
 			self.pack.installed_version = self.version
 			save_site(mon.site_path, self.pack, mon, uninstall)
-		
+
 		except urllib.error.URLError as e:
 			mon.fatal(e)
 		except IOError as e:
@@ -1034,13 +1038,13 @@ class BinaryVersion(Version):
 
 class SourceVersion(Version):
 	"""Version to download from sources."""
-	
+
 	def __init__(self, downloader, build, deps):
 		Version.__init__(self, SRCE_VERS)
 		self.downloader = downloader
 		self.build = build
 		self.deps = deps
-	
+
 	def get_version(self):
 		"""Obtain the version either from the object itself, or from
 		a file named "VERSION" in the root directory of sources."""
@@ -1057,7 +1061,7 @@ class SourceVersion(Version):
 			else:
 				mon.fail()
 				mon.fatal("Download failed: see errors in build.log")
-				
+
 	def install(self, mon):
 		"""Install a package from source."""
 
@@ -1091,11 +1095,11 @@ class SourceVersion(Version):
 		"""Generate the commands for a Makefile to build the source
 		to the given output."""
 		self.build.gen_make(out, mon)
-		
+
 
 # package definition
 class Package:
-	
+
 	def __init__(self, name):
 		self.name = name
 		self.tool = False
@@ -1113,13 +1117,13 @@ class Package:
 		self.web = None
 		self.versions = []
 		self.uninstall = []
-		
+
 		self.done = False
 		self.installed = False
 		self.installed_version = None
 		self.initial = False
 		self.rank = None
-	
+
 	def add_version(self, version):
 		self.versions.append(version)
 		version.pack = self
@@ -1140,7 +1144,7 @@ class Package:
 			if v.version == SRCE_VERS:
 				return v
 		return None
-	
+
 	def latest(self):
 		"""Return the latest version."""
 		l = None
@@ -1157,13 +1161,13 @@ class Package:
 		if self.closed_uses == None:
 			self.closed_uses = do_closure(lambda p: p.uses + p.reqs, [self])
 		return self.closed_uses
-	
+
 	def get_close_reqs(self):
 		"""Close the ist of requirements."""
 		if self.closed_reqs == None:
 			self.closed_reqs = do_closure(lambda p: p.reqs, [self])
 		return self.closed_reqs
-	
+
 	def __repr__(self):
 		return self.name
 
@@ -1200,7 +1204,7 @@ def load_db(url, mon, installed = False):
 	installed parameter is used to set the installed attribute."""
 	mon.comment("getting database from %s" % url)
 	try:
-		
+
 		# get the file
 		stream = urllib.request.urlopen(url)
 		doc = ET.parse(stream)
@@ -1211,15 +1215,15 @@ def load_db(url, mon, installed = False):
 		message = root.find("message")
 		if message is not None:
 			mon.say(BLUE + BOLD + "INFO: " + NORMAL + message.text)
-		
+
 		# manage script version
 		version = root.find("version")
 		if version != None and Version(version) < Version(SIS_VERSION):
 			mon.update = True
-		
+
 		# parse the content
 		for p in root.findall("package"):
-			
+
 			# get the package
 			id = p.get("id", None)
 			assert id
@@ -1231,7 +1235,7 @@ def load_db(url, mon, installed = False):
 				pack.installed = installed
 				DB[id] = pack
 				MONITOR.comment("package %s added." % id)
-			
+
 			# get information from the package
 			pack.tool = to_bool(p.get("tool", None), pack.tool)
 			desc = p.find("desc")
@@ -1255,10 +1259,10 @@ def load_db(url, mon, installed = False):
 					assert "name" in req.attrib
 					pack.reqs.append(req.get("name"))
 			pack.reqs = pack.reqs + [e.get("name") for e in p.findall("req")]
-			
+
 			# get uses
 			pack.uses = [e.get("name") for e in p.findall("use")]
-			
+
 			# get binary versions
 			for velt in p.findall("version"):
 				version = velt.get("number", None)
@@ -1291,7 +1295,7 @@ def load_db(url, mon, installed = False):
 				if build != None:
 					build.add_deps(deps)
 				pack.add_version(SourceVersion(download, build, deps))
-			
+
 			# get uninstall if required
 			if installed:
 				uelt = p.find("uninstall")
@@ -1300,7 +1304,7 @@ def load_db(url, mon, installed = False):
 						action = get_action(aelt, mon)
 						assert action != None
 						pack.uninstall.append(action)
-			
+
 	except (AssertionError, ET.ParseError):
 		mon.fatal("bad DB. Stopping.")
 	except urllib.error.URLError as e:
@@ -1312,10 +1316,10 @@ def save_site(path, ipack, mon, uninstall = None, remove = False):
 	and add newly installed packages. uninstall (optional) is the list
 	of action to apply to uninstall the package. If remove is true,
 	a removal is performed."""
-	
+
 	mon.comment("getting database from %s" % path)
 	try:
-		
+
 		# get the file
 		stream = open(path)
 		doc = ET.parse(stream)
@@ -1328,22 +1332,22 @@ def save_site(path, ipack, mon, uninstall = None, remove = False):
 			if pack.get("id", None) == ipack.name:
 				done = True
 				break
-		
+
 		# remove case
 		if remove:
 			if done:
 				root.remove(pack)
-		
+
 		# install case
 		else:
-		
+
 			# not found: create it
 			if not done:
 				pack = ET.SubElement(root, "package")
-				pack.attrib["id"] = ipack.name			
-		
+				pack.attrib["id"] = ipack.name
+
 			# update the package
-			pack.set("version", ipack.installed_version) 
+			pack.set("version", ipack.installed_version)
 
 			# update the uninstall information
 			uelt = pack.find("unistall")
@@ -1353,10 +1357,10 @@ def save_site(path, ipack, mon, uninstall = None, remove = False):
 				uelt = ET.SubElement(pack, "uninstall")
 				for a in uninstall:
 					save_action(uelt, a)
-		
+
 		# save the database
 		stream.close()
-		
+
 		# save the configuration
 		old_path = path + ".old"
 		mon.comment("writing installed DB to %s" % path)
@@ -1378,7 +1382,7 @@ def save_site(path, ipack, mon, uninstall = None, remove = False):
 def resolve_reqs(mon):
 	"""Delayed resolution of requirements (before all is loaded)."""
 	for pack in DB.values():
-		
+
 		nreqs = []
 		for req in pack.reqs:
 			try:
@@ -1405,12 +1409,12 @@ def list_packs( mon):
 		if pack.tool:
 			continue
 		msg = pack.name + " " * (mnw - len(pack.name))
-		
+
 		if not pack.installed:
 			lv = pack.latest()
 			if lv == None:
 				continue
-			msg = "%s not installed (avail. %s)" % (msg, lv.version)			
+			msg = "%s not installed (avail. %s)" % (msg, lv.version)
 		else:
 			if pack.installed_version:
 				if pack.installed_version == SRCE_VERS:
@@ -1423,8 +1427,8 @@ def list_packs( mon):
 					msg = "%s (avail. %s)" % (msg, lv.version)
 
 		mon.say(msg)
-	
-	
+
+
 def info_pack(pack, mon):
 	"""Display information for the given package."""
 	line = pack.name
@@ -1479,7 +1483,7 @@ def close_packs(vs, mon):
 						todo.add(rv)
 			to_install[v] = rvs
 	return to_install
-	
+
 
 def install_sources(vs, mon, make = False):
 	"""Only install sources (and generate make script)."""
@@ -1542,14 +1546,14 @@ def install_packs(vs, mon):
 
 	# perform the build
 	done = []
-	
+
 	def is_ready(v):
 		return v in done or v.pack.installed
-	
+
 	def req_ready(v):
 		res = all([is_ready(rv) for rv in to_install[v]])
 		return res
-	
+
 	while to_install:
 		v = sorted(filter(req_ready, to_install), key=lambda v: v.pack.get_rank())[0]
 		del to_install[v]
@@ -1566,12 +1570,12 @@ def install_packs(vs, mon):
 def uninstall_packs(packs, mon):
 	"""Uninstall the given list of packages. Take as parameter
 	the list of parameter names."""
-	
+
 	# check packages
 	for pack in packs:
 		if not pack.installed:
 			mon.fatal("package %s is not installed!" % pack.name)
-	
+
 	# compute closure of packages to uninstall
 	upacks = do_closure(lambda p: [u for u in DB.values() if p in u.reqs and u.installed], packs)
 	if len(upacks) > 0 and \
@@ -1635,14 +1639,14 @@ def set_file_exec(path):
 
 def install_root(mon, path, packs, only_init = False):
 	"""Install the root directory, that is, the install database
-	and the installation script itself in the given path and run 
+	and the installation script itself in the given path and run
 	the installation of given packages."""
 	try:
 
 		# set the root directory
 		mon.top_dir = path
 		ensure_dir(mon.top_dir)
-		
+
 		# create the database
 		db_path = os.path.join(mon.top_dir, DB_CONF)
 		ensure_dir(os.path.dirname(db_path))
@@ -1651,7 +1655,7 @@ def install_root(mon, path, packs, only_init = False):
 <sis-extend>
 </sis-extend>
 """)
-		
+
 		# create the installation script
 		script_path = __file__
 		mon.comment("installing script in bin")
@@ -1696,17 +1700,17 @@ os.system(" ".join(["%s %s --default"] + sys.argv[1:]))
 			try:
 				p = args.index(r)
 				del args[p]
-				del args[p]	
+				del args[p]
 			except ValueError:
 				pass
 		args.append("--default")
 		res = subprocess.call([install_path] + args);
 		if res == 0:
 			mon.say(("\n" + BOLD + GREEN +
-				"Thereafter, you have to use script %s to install " + 
+				"Thereafter, you have to use script %s to install " +
 				"packages!" + NORMAL) % install_path)
 		exit(0)
-	
+
 	except OSError as e:
 		mon.fatal(str(e))
 
@@ -1736,7 +1740,7 @@ def update_installer(mon):
 	except OSError as e:
 		mon.fail()
 		mon.error("cannot make the new installer executable: %s" % e)
-	
+
 	# renaming installer to .old.py
 	try:
 		os.rename(install_path, old_path)
@@ -1750,7 +1754,7 @@ def update_installer(mon):
 		os.rename(new_path, install_path)
 	except OSError as e:
 		mon.fail()
-		mon.error("Nasty thing: cannot set the new installer. Trying to reset the old one.\n%s" % e) 
+		mon.error("Nasty thing: cannot set the new installer. Trying to reset the old one.\n%s" % e)
 		try:
 			os.renamed(old_path, install_path)
 		except OSError as e:
@@ -1836,7 +1840,7 @@ if args.source:
 
 # root mode
 if not MONITOR.dry:
-	if args.root != None:	
+	if args.root != None:
 		install_root(MONITOR, args.root, args.packages, args.only_init)
 	elif not INSTALLED:
 		install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
@@ -1852,7 +1856,7 @@ if not MONITOR.dry:
 			MONITOR.top_dir = os.path.join(os.path.dirname(__file__), DB_TOP)
 
 # find the top directory
-if args.root != None:	
+if args.root != None:
 	install_root(MONITOR, args.root, args.packages, args.only_init)
 elif not INSTALLED:
 	install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
