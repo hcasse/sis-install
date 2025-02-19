@@ -1201,7 +1201,9 @@ def to_xml(s, d):
 def load_db(url, mon, installed = False):
 	"""Load the data base from the given URL. The load is incremental.
 	If a plugin already exist, it is completed with new values.
-	installed parameter is used to set the installed attribute."""
+	installed parameter is used to set the installed attribute.
+
+	Return error message or None for success."""
 	mon.comment("getting database from %s" % url)
 	try:
 
@@ -1305,10 +1307,12 @@ def load_db(url, mon, installed = False):
 						assert action != None
 						pack.uninstall.append(action)
 
+		return None
+
 	except (AssertionError, ET.ParseError):
-		mon.fatal("bad DB. Stopping.")
+		return f"DB format error: {url}."
 	except urllib.error.URLError as e:
-		mon.fatal(str(e))
+		return f"error on load of {url}: {str(e)}"
 
 
 def save_site(path, ipack, mon, uninstall = None, remove = False):
