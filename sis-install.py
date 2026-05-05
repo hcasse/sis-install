@@ -157,7 +157,7 @@ class Monitor:
 		self.errors = 0
 		self.allocated_build_dir = False
 		self.allocated_log_file = False
-		self.var_re = re.compile("((^|[^$])\$\(([a-zA-Z0-9_]+)\))|(\$\$)")
+		self.var_re = re.compile(r"((^|[^$])\$\(([a-zA-Z0-9_]+)\))|(\$\$)")
 		self.update = False
 		self.dirs = []			# stack of CWD
 		self.dump = None		# dump commands to this file
@@ -811,7 +811,21 @@ def make_downloader(pack, elt):
 		raise AssertionError
 
 
+class BuildException(Exception):
+	"""Exception raised if there is an error during build or install."""
+
+	def __init__(self, msg=""):
+		self.msg = msg
+
+	def __str__(self):
+		return self.msg
+
+	def __repr__(self):
+		return self.msg
+
+
 class Builder:
+	"""Base class of builders."""
 
 	def __init__(self, pack):
 		self.pack = pack
@@ -822,13 +836,13 @@ class Builder:
 		pass
 
 	def build(self, mon):
-		"""Perform a the build. Return True for success, False else."""
-		return True
+		"""Perform a the build. Raises BuildException if there is an error.."""
+		pass
 
 	def install(self, mon):
-		"""Perform the installation and return None for failure,
-		list of uninstall actions for success."""
-		return []
+		"""Perform the installation and return list of uninstall actions.
+		Raise BuildException if there is an error."""
+		pass
 
 	def gen_make(self, out, mon):
 		"""Generate commands to install the build in a Makefile."""
@@ -851,7 +865,8 @@ class MakeBuilder(Builder):
 		mon.log("\nBuilding %s: %s\n" % (self.pack.name, cmd))
 		res = mon.execute(cmd, log = True)
 		mon.pop_dir()
-		return res == 0
+		if res != 0:
+			raise BuildException(f"make: build error: {res}")
 
 	def install(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
@@ -863,7 +878,7 @@ class MakeBuilder(Builder):
 		if res == 0:
 			return []
 		else:
-			return None
+			raise BuildException("make: install error")
 
 	def gen_make(self, out, mon):
 		pref = "\tcd %s" % self.pack.name
@@ -891,7 +906,8 @@ class CMakeBuilder(Builder):
 			mon.log("\nBuilding %s: make\n" % self.pack.name)
 			res = mon.execute("make", log = True)
 		mon.pop_dir()
-		return res == 0
+		if res != 0:
+			raise BuildException("cmake: build error")
 
 	def install(self, mon):
 		path = os.path.join(mon.get_build_dir(), self.pack.name)
@@ -901,7 +917,7 @@ class CMakeBuilder(Builder):
 		res = mon.result_of(cmd, log = True)
 		mon.pop_dir()
 		if res == None:
-			return False
+			raise BuildException("cmake: install error")
 		else:
 			acts = []
 			for line in res.split("\n"):
@@ -932,7 +948,8 @@ class CommandBuilder(Builder):
 			mon.log("executing %s\n" % self.build_cmd)
 			res = mon.execute(self.build_cmd, None, None, True)
 			mon.pop_dir()
-			return res == 0
+			if res != 0:
+				raise BuildException("cmd: make error")
 		else:
 			return True
 
@@ -1072,22 +1089,23 @@ class SourceVersion(Version):
 		# build
 		if self.build:
 			mon.check("building %s" % self.pack.name)
-			if self.build.build(mon):
+			try:
+				self.build.build(mon)
 				mon.succeed()
-			else:
+			except BuildException as e:
 				mon.fail()
 				mon.fatal("Build failed: see errors in build.log")
 
 		# install
 		if not self.pack.tool:
 			mon.check("installing %s" % self.pack.name)
-			res = self.build.install(mon)
-			if res != None:
+			try:
+				res = self.build.install(mon)
 				mon.succeed()
 				self.pack.installed = True
 				self.pack.installed_version = self.get_version()
 				save_site(mon.site_path, self.pack, mon, res)
-			else:
+			except BuildException as e:
 				mon.fail()
 				mon.fatal("Installation failed: see errors in build.log")
 
@@ -1406,8 +1424,9 @@ def resolve_reqs(mon):
 
 def list_packs( mon):
 	"""List the packages."""
-	mnw = max([len(p.name) for p in DB.values()])
-	for pack in DB.values():
+	packs = sorted(DB.values(), key=lambda p: p.name)
+	mnw = max([len(p.name) for p in packs])
+	for pack in packs:
 		if pack.initial:
 			continue
 		if pack.tool:
@@ -1566,7 +1585,7 @@ def install_packs(vs, mon):
 		else:
 			try:
 				v.install(mon)
-			except IOError as e:
+			except BuildException as e:
 				mon.fatal("error during installation: %s" % e)
 		done.append(v)
 
@@ -1665,7 +1684,7 @@ def install_root(mon, path, packs, only_init = False):
 		mon.comment("installing script in bin")
 		bin_dir = os.path.join(mon.top_dir, "bin")
 		ensure_dir(bin_dir)
-		install_re = re.compile("^INSTALLED\s*=.*$")
+		install_re = re.compile(r"^INSTALLED\s*=.*$")
 		in_file = open(script_path, "r")
 		install_path = os.path.join(bin_dir, os.path.basename(script_path))
 		out_file = open(install_path, "w")
@@ -1680,6 +1699,25 @@ def install_root(mon, path, packs, only_init = False):
 		out_file.close()
 		set_file_exec(install_path)
 
+		# finalize
+		if not only_init:
+			mon.comment("restarting install")
+			roots = ["-R", "--root"]
+			args = sys.argv[1:]
+			p = -1
+			for r in roots:
+				try:
+					p = args.index(r)
+					del args[p]
+					del args[p]
+				except ValueError:
+					pass
+			args.append("--default")
+			res = subprocess.call([install_path] + args);
+			if res != 0:
+				shutil.rmtree(mon.top_dir)
+				exit(1)
+
 		# remove the old one
 		mon.comment("removing old install")
 		old_name = script_path + ".old"
@@ -1693,26 +1731,9 @@ os.system(" ".join(["%s %s --default"] + sys.argv[1:]))
 """ % (sys.executable, install_path, sys.executable, install_path))
 		set_file_exec(script_path)
 
-		# finalize
-		if only_init:
-			exit(0)
-		mon.comment("restarting install")
-		roots = ["-R", "--root"]
-		args = sys.argv[1:]
-		p = -1
-		for r in roots:
-			try:
-				p = args.index(r)
-				del args[p]
-				del args[p]
-			except ValueError:
-				pass
-		args.append("--default")
-		res = subprocess.call([install_path] + args);
-		if res == 0:
-			mon.say(("\n" + BOLD + GREEN +
-				"Thereafter, you have to use script %s to install " +
-				"packages!" + NORMAL) % install_path)
+		mon.say(("\n" + BOLD + GREEN +
+			"Thereafter, you have to use script %s to install " +
+			"packages!" + NORMAL) % install_path)
 		exit(0)
 
 	except OSError as e:
@@ -1843,26 +1864,9 @@ if args.source:
 	sys.exit(0)
 
 # root mode
-if not MONITOR.dry:
-	if args.root != None:
-		install_root(MONITOR, args.root, args.packages, args.only_init)
-	elif not INSTALLED:
-		install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
-		if not MONITOR.ask_yes_no("The packages will be installed in %s: " % install_dir):
-			MONITOR.fatal("Run this script first with -R option to select a different directory.\n")
-		packs = args.packages
-		if not packs:
-			packs = DEFAULT
-		install_root(MONITOR, DEFAULT_PATH, packs)
-	else:
-		MONITOR.top_dir = args.top
-		if not MONITOR.top_dir:
-			MONITOR.top_dir = os.path.join(os.path.dirname(__file__), DB_TOP)
-
-# find the top directory
 if args.root != None:
 	install_root(MONITOR, args.root, args.packages, args.only_init)
-elif not INSTALLED:
+elif not INSTALLED and not args.list:
 	install_dir = os.path.join(os.getcwd(), DEFAULT_PATH)
 	if not MONITOR.ask_yes_no("The packages will be installed in %s: " % install_dir):
 		MONITOR.fatal("Run this script first with -R option to select a different directory.\n")
